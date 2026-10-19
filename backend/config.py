@@ -60,8 +60,8 @@ GROUNDED_ONLY = _env_bool("GROUNDED_ONLY", "true")
 
 OUT_OF_SCOPE_REPLY = os.getenv(
     "OUT_OF_SCOPE_REPLY",
-    "Solo puedo informarte con los datos que tengo: Plan Liga, especialidades médicas "
-    "y contacto para citas. Si tu pregunta es otra, un asesor en citas médicas puede ayudarte al +57 606 333 3340.",
+    "Solo puedo informarte con los datos que tengo: quiénes somos, Plan Liga, "
+    "especialidades médicas y contacto para citas. Para otras consultas, citas médicas: +57 606 333 3340.",
 )
 
 GREETING_REPLY = os.getenv(
@@ -72,9 +72,9 @@ GREETING_REPLY = os.getenv(
 
 IN_SCOPE_HELP_REPLY = os.getenv(
     "IN_SCOPE_HELP_REPLY",
-    "Puedo informarte sobre: el Plan Liga (precio, beneficios y activación), "
-    "las 13 especialidades médicas con su descripción y número de especialistas, "
-    "y teléfonos, WhatsApp y dirección de La Liga Ama Salvar Vidas.",
+    "Puedo informarte sobre: quiénes somos, misión, visión e historia de La Liga Ama Salvar Vidas; "
+    "el Plan Liga; las 13 especialidades con descripción y número de especialistas; "
+    "y contacto para citas.",
 )
 
 TTS_VOICE = os.getenv("TTS_VOICE", "")

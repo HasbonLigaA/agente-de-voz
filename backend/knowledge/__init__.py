@@ -54,6 +54,29 @@ def is_plan_liga_query(text: str) -> bool:
     return bool(_PLAN_LIGA_RE.search(_norm(text)))
 
 
+_INSTITUTION_RE = re.compile(
+    r"(?i)\b("
+    r"quienes\s+somos|qui[eé]nes\s+somos|quienes\s+son|qui[eé]nes\s+son|"
+    r"que\s+es\s+(la\s+)?(liga\s+ama|fundacion|institucion)|"
+    r"que\s+hace\s+(la\s+)?liga|"
+    r"nuestra\s+institucion|historia\s+(de\s+la\s+)?liga|"
+    r"\bmision\b|\bvision\b|\bvalores?\b|"
+    r"liga\s+ama\s+salvar\s+vidas|"
+    r"politica\s+de\s+calidad|"
+    r"que\s+es\s+ama\s+salvar"
+    r")\b"
+)
+
+
+def is_institution_query(text: str) -> bool:
+    low = _norm(text)
+    if is_plan_liga_query(text):
+        return False
+    if re.search(r"\bplan\s*liga\b", low):
+        return False
+    return bool(_INSTITUTION_RE.search(low))
+
+
 def _history_mentions_specialties(messages: list[dict[str, str]]) -> bool:
     for msg in messages[-8:]:
         content = (msg.get("content") or "").strip()

@@ -13,7 +13,9 @@ from backend.config import (
     OUT_OF_SCOPE_REPLY,
 )
 from backend.contact_reply import answer_contact
+from backend.institution_reply import answer_institution
 from backend.knowledge import (
+    is_institution_query,
     is_plan_liga_query,
     is_specialties_list_query,
     is_specialty_detail_query,
@@ -62,6 +64,9 @@ def answer_grounded(user_text: str, history: list[dict[str, str]]) -> str:
 
     if is_plan_liga_query(text):
         return answer_plan_liga(text)
+
+    if is_institution_query(text):
+        return answer_institution(text)
 
     if is_specialty_detail_query(text):
         detail = answer_specialty_topic(text)
