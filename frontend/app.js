@@ -2,7 +2,6 @@ let sessionId = null;
 let lastAudio = null;
 let chatBusy = false;
 let sttBackendOk = false;
-let publicMicUrl = null;
 
 const logEl = document.getElementById("log");
 const form = document.getElementById("chat-form");
@@ -12,8 +11,8 @@ const newSessionBtn = document.getElementById("new-session");
 const healthEl = document.getElementById("health");
 const micBtn = document.getElementById("mic-btn");
 const micStatusEl = document.getElementById("mic-status");
-const httpsBannerEl = document.getElementById("https-banner");
-const httpsBannerLinkEl = document.getElementById("https-banner-link");
+
+let appHttpsUrl = null;
 
 let micStream = null;
 let mediaRecorder = null;
@@ -103,35 +102,17 @@ function setComposerDisabled(disabled) {
   if (micBtn) micBtn.disabled = disabled;
 }
 
-function updateHttpsBanner() {
-  if (!httpsBannerEl || !httpsBannerLinkEl) return;
-  if (micAllowedHere()) {
-    httpsBannerEl.classList.add("hidden");
-    return;
-  }
-  const url = publicMicUrl || "";
-  if (!url || url.startsWith("http://")) {
-    httpsBannerEl.classList.remove("hidden");
-    httpsBannerLinkEl.textContent = "Esperando URL HTTPS del servidor…";
-    httpsBannerLinkEl.removeAttribute("href");
-    return;
-  }
-  httpsBannerEl.classList.remove("hidden");
-  httpsBannerLinkEl.href = url;
-  httpsBannerLinkEl.textContent = url.replace(/^https:\/\//, "");
+function normalizeOrigin(url) {
+  return (url || "").replace(/\/$/, "");
 }
 
-function redirectToMicHttpsUrl() {
-  if (!publicMicUrl || !publicMicUrl.startsWith("https://")) {
-    setMicStatus(
-      "Micrófono requiere HTTPS. Abre el enlace amarillo arriba o pide la URL segura al administrador."
-    );
-    return false;
-  }
-  if (publicMicUrl.replace(/\/$/, "") === window.location.origin.replace(/\/$/, "")) {
-    return true;
-  }
-  window.location.href = publicMicUrl;
+async function ensureSecureContextForMic() {
+  if (window.isSecureContext) return true;
+  if (!appHttpsUrl) return false;
+  const here = normalizeOrigin(window.location.origin);
+  const target = normalizeOrigin(appHttpsUrl);
+  if (here === target) return true;
+  window.location.replace(appHttpsUrl);
   return false;
 }
 
@@ -140,17 +121,19 @@ async function refreshHealth() {
     const res = await fetch("/api/health", { cache: "no-store" });
     const data = await res.json();
     sttBackendOk = Boolean(data.stt_available);
-    if (data.public_https_url) {
-      publicMicUrl = data.public_https_url;
+    if (data.app_https_url) {
+      appHttpsUrl = data.app_https_url;
     }
     const engine = data.stt_engine || "whisper";
     const wh = data.whisper_model ? `/${data.whisper_model}` : "";
-    const micHint = micAllowedHere() ? "mic OK" : "mic→HTTPS";
+    const micHint = window.isSecureContext ? "mic OK" : "mic→HTTPS";
     healthEl.textContent = sttBackendOk
       ? `Backend · ${data.ollama_model} · ${engine}${wh} · ${micHint}`
       : `Backend · pip install faster-whisper imageio-ffmpeg`;
     healthEl.className = "health ok";
-    updateHttpsBanner();
+    if (!window.isSecureContext && appHttpsUrl) {
+      await ensureSecureContextForMic();
+    }
   } catch {
     sttBackendOk = false;
     healthEl.textContent = "Backend apagado (inicia uvicorn en este equipo).";
@@ -227,10 +210,21 @@ async function sendChatMessage(text) {
   }
 }
 
-async function transcribeBlob(blob, mime) {
-  const ext = mime.includes("mp4") ? "m4a" : mime.includes("ogg") ? "ogg" : "webm";
+async function transcribeBlob(blob, mime, filename) {
+  let ext = "webm";
+  if (filename && filename.includes(".")) {
+    ext = filename.split(".").pop().toLowerCase();
+  } else if (mime.includes("mp4") || mime.includes("m4a")) {
+    ext = "m4a";
+  } else if (mime.includes("ogg")) {
+    ext = "ogg";
+  } else if (mime.includes("wav")) {
+    ext = "wav";
+  } else if (mime.includes("mpeg") || mime.includes("mp3")) {
+    ext = "mp3";
+  }
   const formData = new FormData();
-  formData.append("audio", blob, `voz.${ext}`);
+  formData.append("audio", blob, filename || `voz.${ext}`);
   const res = await fetch("/api/transcribe", { method: "POST", body: formData });
   let data = {};
   try {
@@ -282,12 +276,45 @@ async function stopRecorderAndGetBlob(recorder) {
   });
 }
 
+async function sendTranscribedAudio(blob, filename) {
+  const mime = blob.type || "application/octet-stream";
+  setMicStatus(`Enviando audio (${Math.round(blob.size / 1024)} KB) a transcribir…`, true);
+  setComposerDisabled(true);
+  try {
+    const { text } = await transcribeBlob(blob, mime, filename);
+    if (!text?.trim()) {
+      setMicStatus("No se entendió. Intenta otra vez.");
+      return;
+    }
+    if (isRepetitiveGarbage(text)) {
+      setMicStatus("Transcripción confusa. Repite más despacio o escribe.");
+      messageEl.value = text;
+      return;
+    }
+    messageEl.value = text;
+    setMicStatus(`OK: «${text.slice(0, 70)}${text.length > 70 ? "…" : ""}»`);
+    await sendChatMessage(text);
+    setMicStatus("");
+  } catch (err) {
+    setMicStatus(String(err.message || err));
+  } finally {
+    setComposerDisabled(false);
+  }
+}
+
 async function startMicRecording() {
   if (micRecording || chatBusy) return;
   await refreshHealth();
 
-  if (!micAllowedHere()) {
-    if (!redirectToMicHttpsUrl()) return;
+  if (!window.isSecureContext) {
+    if (!(await ensureSecureContextForMic())) {
+      setMicStatus(
+        appHttpsUrl
+          ? `Redirigiendo a ${appHttpsUrl.replace(/^https:\/\//, "")} para activar el micrófono…`
+          : "El micrófono requiere HTTPS. Configura APP_PUBLIC_HTTPS_URL en el servidor."
+      );
+    }
+    return;
   }
 
   if (!sttBackendOk) {
@@ -393,33 +420,7 @@ async function stopMicRecording(send) {
     return;
   }
 
-  setMicStatus(`Enviando audio (${Math.round(blob.size / 1024)} KB) a transcribir…`, true);
-  setComposerDisabled(true);
-
-  try {
-    const { text, raw } = await transcribeBlob(blob, blob.type);
-    if (!text?.trim()) {
-      setMicStatus("No se entendió. Intenta otra vez.");
-      return;
-    }
-    if (isRepetitiveGarbage(text)) {
-      setMicStatus("Transcripción confusa. Repite más despacio o escribe.");
-      messageEl.value = text;
-      return;
-    }
-    messageEl.value = text;
-    if (raw) {
-      setMicStatus(`Corregido por IA · antes: «${raw.slice(0, 50)}…»`);
-    } else {
-      setMicStatus(`OK: «${text.slice(0, 70)}${text.length > 70 ? "…" : ""}»`);
-    }
-    await sendChatMessage(text);
-    setMicStatus("");
-  } catch (err) {
-    setMicStatus(String(err.message || err));
-  } finally {
-    setComposerDisabled(false);
-  }
+  await sendTranscribedAudio(blob);
 }
 
 micBtn?.addEventListener("click", () => {
@@ -440,16 +441,4 @@ newSessionBtn.addEventListener("click", () => {
   messageEl.focus();
 });
 
-httpsBannerLinkEl?.addEventListener("click", (e) => {
-  if (!publicMicUrl || !publicMicUrl.startsWith("https://")) {
-    e.preventDefault();
-    void refreshHealth();
-  }
-});
-
 refreshHealth();
-setInterval(() => {
-  if (!micAllowedHere() && (!publicMicUrl || !publicMicUrl.startsWith("https://"))) {
-    void refreshHealth();
-  }
-}, 8000);

@@ -58,35 +58,6 @@ h1 {
   color: #f87171;
 }
 
-.https-banner {
-  margin-top: 0.75rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: 8px;
-  border: 1px solid #f59e0b;
-  background: rgba(245, 158, 11, 0.12);
-  font-size: 0.85rem;
-  line-height: 1.4;
-}
-
-.https-banner.hidden {
-  display: none;
-}
-
-.https-banner p {
-  margin: 0 0 0.5rem;
-}
-
-.https-banner-link {
-  display: inline-block;
-  color: #fde68a;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.https-banner-link:hover {
-  text-decoration: underline;
-}
-
 .log {
   margin: 1.25rem 0;
   max-height: 360px;

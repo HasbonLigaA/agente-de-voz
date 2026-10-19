@@ -49,11 +49,7 @@ Abre [http://127.0.0.1:8767](http://127.0.0.1:8767).
    ```
    Abre en el celular la URL `http://TU_IP:8767` que imprime el script. Si no carga, permite Python en el firewall de Windows (red privada).
 
-2. **Micrófono en el celular:** Chrome/Safari suelen exigir **HTTPS** (no basta HTTP en la LAN). Con el servidor local encendido, en otra terminal:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts\tunnel_cloudflare.ps1
-   ```
-   Usa la URL `https://….trycloudflare.com` en el navegador del móvil.
+2. **Micrófono en el celular:** los navegadores exigen **HTTPS** para activar el micrófono. Abre `APP_PUBLIC_HTTPS_URL` (por defecto `https://seguimiento.laliga.org.co:8768`). Si entras por `http://160.2.1.22:8767`, la app te redirige sola al HTTPS. El certificado debe estar vigente (`*.laliga.org.co`).
 
 El celular solo habla con tu PC; Ollama sigue en `OLLAMA_HOST` (no expongas el puerto 11434 a internet).
 

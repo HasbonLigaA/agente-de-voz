@@ -22,27 +22,22 @@ def _env_int(name: str, default: str) -> int:
 # Servidor HTTP (uvicorn)
 PORT = _env_int("PORT", "8767")
 
-_TUNNEL_URL_FILE = Path("/tunnel/public_https_url")
-
-
-def _read_tunnel_url_file() -> str:
-    try:
-        if _TUNNEL_URL_FILE.is_file():
-            return _TUNNEL_URL_FILE.read_text(encoding="utf-8").strip()
-    except OSError:
-        pass
-    return ""
-
-
 TRAEFIK_HOST = os.getenv("TRAEFIK_HOST", "agente-voz.laliga.org.co").strip()
 
 
-def public_https_url() -> str:
-    """URL HTTPS para micrófono (env o túnel Cloudflare escrito en volumen compartido)."""
-    env_url = os.getenv("PUBLIC_HTTPS_URL", "").strip()
-    if env_url:
-        return env_url
-    return _read_tunnel_url_file()
+def app_public_https_url() -> str:
+    """URL HTTPS donde el navegador puede usar getUserMedia (micrófono en celular)."""
+    explicit = os.getenv("APP_PUBLIC_HTTPS_URL", "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    host = os.getenv("PUBLIC_HTTPS_HOST", "seguimiento.laliga.org.co").strip()
+    if not host:
+        return ""
+    tls_port = _env_int("TLS_PORT", "8768")
+    if tls_port == 443:
+        return f"https://{host}"
+    return f"https://{host}:{tls_port}"
+
 
 # Ollama
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
