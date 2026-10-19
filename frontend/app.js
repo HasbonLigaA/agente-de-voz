@@ -17,6 +17,7 @@ const micStatusEl = document.getElementById("mic-status");
 const presenceEl = document.getElementById("assistant-presence");
 const avatarEl = document.getElementById("assistant-avatar");
 const presenceLabelEl = document.getElementById("presence-label");
+const emptyStateEl = document.getElementById("empty-state");
 
 let appHttpsUrl = null;
 
@@ -118,7 +119,19 @@ function appendBubble(role, text) {
   div.innerHTML = `<span class="role">${label}</span>${escapeHtml(text)}`;
   row.appendChild(div);
   logEl.appendChild(row);
+  logEl.classList.add("has-messages");
   logEl.scrollTop = logEl.scrollHeight;
+}
+
+function syncEmptyState() {
+  if (!logEl) return;
+  logEl.classList.toggle("has-messages", logEl.children.length > 0);
+}
+
+function autoResizeMessageField() {
+  if (!messageEl) return;
+  messageEl.style.height = "auto";
+  messageEl.style.height = `${Math.min(messageEl.scrollHeight, 120)}px`;
 }
 
 function escapeHtml(s) {
@@ -172,17 +185,19 @@ async function refreshHealth() {
     const engine = data.stt_engine || "whisper";
     const wh = data.whisper_model ? `/${data.whisper_model}` : "";
     const micHint = window.isSecureContext ? "micrófono disponible" : "micrófono vía HTTPS";
-    healthEl.textContent = sttBackendOk
+    healthEl.textContent = sttBackendOk ? "En línea" : "Parcial";
+    healthEl.title = sttBackendOk
       ? `Servicio activo · ${data.ollama_model} · ${engine}${wh} · ${micHint}`
-      : `Servicio parcial · instala faster-whisper e imageio-ffmpeg`;
-    healthEl.className = "health ok";
+      : "Instala faster-whisper e imageio-ffmpeg";
+    healthEl.className = "status-pill ok";
     if (!window.isSecureContext && appHttpsUrl) {
       await ensureSecureContextForMic();
     }
   } catch {
     sttBackendOk = false;
-    healthEl.textContent = "Servicio no disponible. Inicia el servidor en este equipo.";
-    healthEl.className = "health err";
+    healthEl.textContent = "Sin conexión";
+    healthEl.title = "Servicio no disponible. Inicia el servidor en este equipo.";
+    healthEl.className = "status-pill err";
   }
 }
 
@@ -494,8 +509,19 @@ newSessionBtn.addEventListener("click", () => {
   if (micRecording) void stopMicRecording(false);
   sessionId = null;
   logEl.innerHTML = "";
+  syncEmptyState();
   setAssistantPresence(null);
   messageEl.focus();
 });
+
+document.querySelectorAll(".chip[data-prompt]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const prompt = btn.getAttribute("data-prompt");
+    if (!prompt || chatBusy) return;
+    void sendChatMessage(prompt);
+  });
+});
+
+messageEl?.addEventListener("input", autoResizeMessageField);
 
 refreshHealth();

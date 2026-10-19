@@ -2,45 +2,74 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#9d1459" />
   <title>La Liga AmaSalvarVidas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <main class="panel">
-    <header class="brand">
-      <img src="/static/logo-liga.png" alt="" class="brand-logo" width="56" height="56" />
-      <div class="brand-text">
-        <h1>La Liga AmaSalvarVidas</h1>
-        <p class="subtitle">Asistente virtual · consulta por texto o voz</p>
+  <div class="app-bg" aria-hidden="true"></div>
+  <main class="chat-app">
+    <header class="topbar">
+      <div class="topbar-brand">
+        <div class="logo-ring">
+          <img src="/static/logo-liga.png" alt="" class="brand-logo" width="44" height="44" />
+        </div>
+        <div class="brand-text">
+          <h1>La Liga AmaSalvarVidas</h1>
+          <p class="subtitle">Asistente virtual · texto y voz</p>
+        </div>
       </div>
+      <div id="health" class="status-pill" aria-live="polite">Comprobando…</div>
     </header>
-    <div id="health" class="health" aria-live="polite">Comprobando servidor…</div>
 
-    <div id="assistant-presence" class="assistant-presence" hidden>
-      <img id="assistant-avatar" class="assistant-avatar" src="/static/logo-liga.png" alt="La Liga AmaSalvarVidas" width="72" height="72" />
-      <p id="presence-label" class="presence-label">Respondiendo…</p>
+    <div class="chat-panel">
+      <div id="assistant-presence" class="presence-bar" hidden>
+        <img id="assistant-avatar" class="assistant-avatar" src="/static/logo-liga.png" alt="" width="40" height="40" />
+        <div class="presence-copy">
+          <span id="presence-label" class="presence-label">Preparando respuesta…</span>
+          <span class="presence-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        </div>
+      </div>
+
+      <section id="log" class="message-list" aria-label="Conversación"></section>
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon" aria-hidden="true">
+          <img src="/static/logo-liga.png" alt="" width="56" height="56" />
+        </div>
+        <p class="empty-title">¿En qué te ayudamos hoy?</p>
+        <p class="empty-hint">Plan Liga, especialidades, contacto o datos de la institución.</p>
+        <div class="quick-chips" role="group" aria-label="Sugerencias">
+          <button type="button" class="chip" data-prompt="¿Qué beneficios tiene el Plan Liga?">Plan Liga</button>
+          <button type="button" class="chip" data-prompt="¿Qué especialidades hay?">Especialidades</button>
+          <button type="button" class="chip" data-prompt="Contacto para citas médicas">Contacto</button>
+        </div>
+      </div>
     </div>
 
-    <section id="log" class="log" aria-label="Conversación"></section>
-
     <form id="chat-form" class="composer">
-      <label for="message">Tu consulta</label>
-      <div class="input-row">
-        <textarea id="message" rows="2" placeholder="Escribe tu pregunta o usa el micrófono…" required></textarea>
-        <button type="button" id="mic-btn" class="mic-btn secondary" title="Grabar voz · pulsa de nuevo para enviar" aria-label="Micrófono">
-          <svg class="mic-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <div class="composer-box">
+        <textarea id="message" rows="1" placeholder="Escribe tu mensaje…" required></textarea>
+        <button type="button" id="mic-btn" class="icon-btn mic-btn" title="Grabar voz" aria-label="Micrófono">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
             <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-2.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          </svg>
+        </button>
+        <button type="submit" id="send" class="icon-btn send-btn" aria-label="Enviar">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
           </svg>
         </button>
       </div>
       <p id="mic-status" class="mic-status" aria-live="polite"></p>
-      <div class="actions">
-        <button type="button" id="new-session" class="secondary">Nueva conversación</button>
-        <button type="submit" id="send">Enviar</button>
+      <div class="composer-footer">
+        <button type="button" id="new-session" class="text-btn">Nueva conversación</button>
       </div>
     </form>
   </main>
-  <script src="/static/app.js?v=15"></script>
+  <script src="/static/app.js?v=16"></script>
 </body>
 </html>
