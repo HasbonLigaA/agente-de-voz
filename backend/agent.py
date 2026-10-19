@@ -13,9 +13,13 @@ from backend.config import (
     OUT_OF_SCOPE_REPLY,
 )
 from backend.contact_reply import answer_contact
-from backend.knowledge import is_plan_liga_query, is_specialties_query
+from backend.knowledge import (
+    is_plan_liga_query,
+    is_specialties_list_query,
+    is_specialty_detail_query,
+)
 from backend.plan_liga_reply import answer_plan_liga
-from backend.specialties_reply import answer_specialties
+from backend.specialties_reply import answer_specialties, answer_specialty_topic
 
 _GREETING_RE = re.compile(
     r"(?i)^\s*("
@@ -59,7 +63,12 @@ def answer_grounded(user_text: str, history: list[dict[str, str]]) -> str:
     if is_plan_liga_query(text):
         return answer_plan_liga(text)
 
-    if is_specialties_query(text, history):
+    if is_specialty_detail_query(text):
+        detail = answer_specialty_topic(text)
+        if detail:
+            return detail
+
+    if is_specialties_list_query(text, history):
         return answer_specialties(text)
 
     if _CONTACT_RE.search(_norm(text)):

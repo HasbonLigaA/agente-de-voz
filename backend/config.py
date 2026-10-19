@@ -73,7 +73,8 @@ GREETING_REPLY = os.getenv(
 IN_SCOPE_HELP_REPLY = os.getenv(
     "IN_SCOPE_HELP_REPLY",
     "Puedo informarte sobre: el Plan Liga (precio, beneficios y activación), "
-    "la lista completa de especialidades médicas, y teléfonos, WhatsApp y dirección de La Liga Ama Salvar Vidas.",
+    "las 13 especialidades médicas con su descripción y número de especialistas, "
+    "y teléfonos, WhatsApp y dirección de La Liga Ama Salvar Vidas.",
 )
 
 TTS_VOICE = os.getenv("TTS_VOICE", "")

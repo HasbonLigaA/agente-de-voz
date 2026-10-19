@@ -5,6 +5,7 @@ import re
 import unicodedata
 
 from backend.knowledge.plan_liga import PLAN_LIGA, PLAN_LIGA_SOURCE_URL
+from backend.knowledge.specialties import find_specialty_in_text
 
 _PLAN_LIGA_RE = re.compile(
     r"(?i)\b("
@@ -14,13 +15,14 @@ _PLAN_LIGA_RE = re.compile(
     r")\b"
 )
 
-_SPECIALTIES_RE = re.compile(
+_LIST_SPECIALTIES_RE = re.compile(
     r"(?i)\b("
-    r"especialidades?|subespecialidades?|"
+    r"especialidades?\s+(hay|tiene|manejan|ofrecen|disponibles)|"
     r"que\s+especialidades|cuales\s+especialidades|cu[aá]ntas\s+especialidades|"
     r"lista\s+(de\s+)?especialidades?|"
     r"dimelas?\s+(todas?|completas?)|todas?\s+las?\s+especialidades|"
-    r"dime\s+todas?\s+las?\s+especialidades"
+    r"dime\s+todas?\s+las?\s+especialidades|"
+    r"cu[aá]ntos?\s+especialistas\s+(hay|tiene|en\s+total)"
     r")\b"
 )
 
@@ -32,6 +34,14 @@ _FOLLOWUP_ALL_RE = re.compile(
     r"completas?|"
     r"enumera\s+todas?"
     r")\s*[.!?]*\s*$"
+)
+
+_DETAIL_SPECIALTY_RE = re.compile(
+    r"(?i)\b("
+    r"para\s+que\s+sirve|que\s+es|qu[eé]\s+es|"
+    r"hablame\s+de|cu[eé]ntame|explicame|"
+    r"cu[aá]ntos?\s+especialistas\s+(en|de|hay)"
+    r")\b"
 )
 
 
@@ -50,18 +60,18 @@ def _history_mentions_specialties(messages: list[dict[str, str]]) -> bool:
         if not content:
             continue
         low = _norm(content)
-        if "especialidad" in low:
-            return True
-        if msg.get("role") == "assistant" and re.search(
-            r"medicina familiar|neurocirug|dermatolog|gastroenterolog", low
-        ):
+        if "especialidad" in low or find_specialty_in_text(content):
             return True
     return False
 
 
-def is_specialties_query(text: str, history: list[dict[str, str]] | None = None) -> bool:
+def is_specialties_list_query(text: str, history: list[dict[str, str]] | None = None) -> bool:
     low = _norm(text)
-    if _SPECIALTIES_RE.search(low):
+    if find_specialty_in_text(text) and _DETAIL_SPECIALTY_RE.search(low):
+        return False
+    if find_specialty_in_text(text) and not _LIST_SPECIALTIES_RE.search(low):
+        return False
+    if _LIST_SPECIALTIES_RE.search(low):
         return True
     if _FOLLOWUP_ALL_RE.match(low) and history and _history_mentions_specialties(history):
         return True
@@ -69,6 +79,17 @@ def is_specialties_query(text: str, history: list[dict[str, str]] | None = None)
         if _history_mentions_specialties(history):
             return True
     return False
+
+
+def is_specialty_detail_query(text: str) -> bool:
+    low = _norm(text)
+    if re.search(r"\boncolog", low):
+        return True
+    if find_specialty_in_text(text) and (
+        _DETAIL_SPECIALTY_RE.search(low) or re.search(r"especialidad", low)
+    ):
+        return True
+    return bool(find_specialty_in_text(text) and _DETAIL_SPECIALTY_RE.search(low))
 
 
 def plan_liga_context_json() -> str:
