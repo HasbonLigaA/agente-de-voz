@@ -4,6 +4,7 @@ from typing import Any
 
 import ollama
 
+from backend.brand import sanitize_institution_name
 from backend.config import (
     AGENT_SYSTEM_PROMPT,
     OLLAMA_HOST,
@@ -43,11 +44,12 @@ def chat(
         response = client.chat(**payload)
     except TypeError:
         response = ollama.chat(**payload)
-    return (response.get("message") or {}).get("content", "").strip()
+    text = (response.get("message") or {}).get("content", "").strip()
+    return sanitize_institution_name(text)
 
 
 def build_messages(history: list[dict[str, str]]) -> list[dict[str, str]]:
-    system = AGENT_SYSTEM_PROMPT.strip()
+    system = sanitize_institution_name(AGENT_SYSTEM_PROMPT.strip())
     if not system:
         return list(history)
     return [{"role": "system", "content": system}, *history]

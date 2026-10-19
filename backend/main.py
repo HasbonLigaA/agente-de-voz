@@ -9,7 +9,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from backend.brand import sanitize_institution_name
 from backend.config import (
+    CHAT_TEXT_FIRST,
     CORS_ALLOW_ORIGINS,
     OLLAMA_HOST,
     OLLAMA_TEXT_MODEL,
@@ -52,8 +54,12 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     session_id: str
     reply_text: str
-    audio_base64: str
+    audio_base64: str = ""
     audio_mime: str = "audio/mpeg"
+
+
+class SpeechRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
 
 
 class SessionResponse(BaseModel):
@@ -192,18 +198,31 @@ async def api_chat(body: ChatRequest):
         session.messages.pop()
         raise HTTPException(status_code=502, detail="Ollama devolvió una respuesta vacía.")
 
+    reply = sanitize_institution_name(reply)
     session.messages.append({"role": "assistant", "content": reply})
 
-    try:
-        audio_b64 = await _reply_with_voice(reply)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Error al generar voz: {exc}") from exc
+    audio_b64 = ""
+    if not CHAT_TEXT_FIRST:
+        try:
+            audio_b64 = await _reply_with_voice(reply)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Error al generar voz: {exc}") from exc
 
     return ChatResponse(
         session_id=session.id,
         reply_text=reply,
         audio_base64=audio_b64,
     )
+
+
+@app.post("/api/speech")
+async def api_speech(body: SpeechRequest):
+    text = sanitize_institution_name(body.text.strip())
+    try:
+        audio_b64 = await _reply_with_voice(text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Error al generar voz: {exc}") from exc
+    return {"audio_base64": audio_b64, "audio_mime": "audio/mpeg"}
 
 
 @app.get("/")

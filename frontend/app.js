@@ -175,6 +175,22 @@ async function playAudioBase64(b64) {
   }
 }
 
+async function fetchSpeechAndPlay(replyText) {
+  if (!replyText?.trim()) return;
+  try {
+    const res = await fetch("/api/speech", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: replyText }),
+    });
+    const data = await res.json();
+    if (!res.ok) return;
+    if (data.audio_base64) await playAudioBase64(data.audio_base64);
+  } catch {
+    /* voz opcional */
+  }
+}
+
 async function sendChatMessage(text) {
   const trimmed = text.trim();
   if (!trimmed || chatBusy) return;
@@ -198,7 +214,11 @@ async function sendChatMessage(text) {
     if (!res.ok) throw new Error(data.detail || "Error en el chat");
     sessionId = data.session_id;
     appendBubble("assistant", data.reply_text);
-    await playAudioBase64(data.audio_base64);
+    if (data.audio_base64) {
+      await playAudioBase64(data.audio_base64);
+    } else {
+      void fetchSpeechAndPlay(data.reply_text);
+    }
   } catch (err) {
     appendBubble("assistant", `Error: ${err.message}`);
   } finally {

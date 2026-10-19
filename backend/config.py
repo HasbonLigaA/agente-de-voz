@@ -73,6 +73,12 @@ STT_POLISH_PROMPT = os.getenv("STT_POLISH_PROMPT", "")
 STT_POLISH_TEMPERATURE = _env_float("STT_POLISH_TEMPERATURE", "0.15")
 STT_POLISH_NUM_CTX = _env_int("STT_POLISH_NUM_CTX", "2048")
 
+# Plan Liga: plantilla sin Ollama = respuesta casi instantánea
+PLAN_LIGA_USE_LLM = _env_bool("PLAN_LIGA_USE_LLM", "false")
+
+# Devuelve texto al cliente y genera voz en segundo plano (/api/speech)
+CHAT_TEXT_FIRST = _env_bool("CHAT_TEXT_FIRST", "true")
+
 # CORS (front servido desde el mismo host suele no hacer falta; útil en pruebas)
 CORS_ALLOW_ORIGINS = [
     o.strip()

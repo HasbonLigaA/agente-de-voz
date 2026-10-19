@@ -11,7 +11,7 @@ PLAN_LIGA_SOURCE_URL = (
 
 PLAN_LIGA: dict = {
     "nombre": "Plan Liga Ama Salvar Vidas",
-    "organizacion": "La Liga Contra el Cáncer — Ama Salvar Vidas (Pereira, Colombia)",
+    "organizacion": "La Liga Ama Salvar Vidas (Pereira, Risaralda, Colombia)",
     "tipo": "Membresía anual de salud (NO es streaming, fútbol ni entretenimiento)",
     "resumen": (
         "Membresía anual con acceso preferencial al portafolio de servicios de La Liga, "
