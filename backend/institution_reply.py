@@ -19,36 +19,25 @@ def answer_institution(user_message: str) -> str:
     name = INSTITUTION["nombre"]
 
     if re.search(r"\b(mision)\b", low):
-        return sanitize_institution_name(
-            f"Misión de {name}: {INSTITUTION['mision']}"
-        )
+        return sanitize_institution_name(f"Misión de {name}: {INSTITUTION['mision_voz']}")
 
     if re.search(r"\b(vision)\b", low):
-        return sanitize_institution_name(
-            f"Visión de {name}: {INSTITUTION['vision']}"
-        )
+        return sanitize_institution_name(f"Visión de {name}: {INSTITUTION['vision_voz']}")
 
     if re.search(r"\b(valores?)\b", low):
-        partes = [f"{k}: {v}" for k, v in INSTITUTION["valores"].items()]
         return sanitize_institution_name(
-            f"Valores de {name}: " + "; ".join(partes) + "."
+            f"Valores de {name}: {INSTITUTION['valores_voz']}."
         )
 
     if re.search(r"\b(historia)\b", low):
-        return sanitize_institution_name(
-            f"Historia de {name}: {INSTITUTION['historia_resumen']}"
-        )
+        return sanitize_institution_name(f"{INSTITUTION['historia_voz']}")
 
-    if re.search(r"\b(politica\s+de\s+calidad|calidad)\b", low):
-        return sanitize_institution_name(
-            f"Política de calidad de {name}: {INSTITUTION['politica_calidad_resumen']}"
-        )
+    if re.search(
+        r"\b(para\s+que\s+sirve|para\s+que\s+sirven|a\s+que\s+se\s+dedican)\b", low
+    ):
+        return sanitize_institution_name(INSTITUTION["para_que_sirve_voz"])
 
-    # Quiénes somos / qué hace (general)
-    return sanitize_institution_name(
-        f"{name} es una {INSTITUTION['tipo']} con sede en {INSTITUTION['sede']}.\n\n"
-        f"{INSTITUTION['historia_resumen']}\n\n"
-        f"Qué hace: {INSTITUTION['que_hace']}\n\n"
-        f"Misión: {INSTITUTION['mision']}\n\n"
-        f"Visión: {INSTITUTION['vision']}"
-    )
+    if re.search(r"\b(que\s+hacen|que\s+hace|de\s+que\s+se\s+trata)\b", low):
+        return sanitize_institution_name(INSTITUTION["pitch_voz"])
+
+    return sanitize_institution_name(INSTITUTION["pitch_voz"])

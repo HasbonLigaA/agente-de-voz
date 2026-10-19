@@ -37,17 +37,13 @@ def is_specialty_detail_query(text: str) -> bool:
 
 
 def format_all_specialties() -> str:
-    lines = [
-        f"La Liga Ama Salvar Vidas tiene {TOTAL_SPECIALISTS_LABEL} especialistas "
-        f"en {SPECIALTY_AREAS_COUNT} áreas de atención médica.",
-        "Listado completo con número de especialistas por área:",
-    ]
-    for item in SPECIALTY_CATALOG:
-        lines.append(f"{item['nombre']}: {item['especialistas']} especialista(s).")
-    lines.append(
-        "Para agendar cita en cualquier especialidad, llama a citas médicas al +57 606 333 3340."
+    partes = [f"{item['nombre']} ({item['especialistas']})" for item in SPECIALTY_CATALOG]
+    return sanitize_institution_name(
+        f"La Liga Ama Salvar Vidas tiene {TOTAL_SPECIALISTS_LABEL} especialistas en "
+        f"{SPECIALTY_AREAS_COUNT} áreas: "
+        + ", ".join(partes)
+        + ". Citas: +57 606 333 3340."
     )
-    return sanitize_institution_name("\n\n".join(lines))
 
 
 def format_specialty_detail(name: str) -> str:
@@ -56,9 +52,7 @@ def format_specialty_detail(name: str) -> str:
     desc = str(item["descripcion"])
     plural = "especialistas" if n != 1 else "especialista"
     return sanitize_institution_name(
-        f"{name}: {desc}\n\n"
-        f"En La Liga Ama Salvar Vidas hay {n} {plural} en esta área.\n\n"
-        f"Citas médicas: +57 606 333 3340."
+        f"{name}: {desc} Hay {n} {plural} en La Liga Ama Salvar Vidas. Citas: +57 606 333 3340."
     )
 
 

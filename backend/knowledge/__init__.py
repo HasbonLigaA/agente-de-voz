@@ -58,7 +58,9 @@ _INSTITUTION_RE = re.compile(
     r"(?i)\b("
     r"quienes\s+somos|qui[eé]nes\s+somos|quienes\s+son|qui[eé]nes\s+son|"
     r"que\s+es\s+(la\s+)?(liga\s+ama|fundacion|institucion)|"
-    r"que\s+hace\s+(la\s+)?liga|"
+    r"que\s+hace\s+(la\s+)?liga|que\s+hacen|que\s+hace|"
+    r"para\s+que\s+sirve|para\s+que\s+sirven|"
+    r"a\s+que\s+se\s+dedican|de\s+que\s+se\s+trata|"
     r"nuestra\s+institucion|historia\s+(de\s+la\s+)?liga|"
     r"\bmision\b|\bvision\b|\bvalores?\b|"
     r"liga\s+ama\s+salvar\s+vidas|"
@@ -67,14 +69,46 @@ _INSTITUTION_RE = re.compile(
     r")\b"
 )
 
+_INSTITUTION_FOLLOWUP_RE = re.compile(
+    r"(?i)^\s*(que\s+hacen|que\s+hace|para\s+que\s+sirve|para\s+que\s+sirven|"
+    r"y\s+eso\s+que\s+es|de\s+que\s+se\s+trata)\s*[\?\.!]*\s*$"
+)
 
-def is_institution_query(text: str) -> bool:
+
+def _history_institution_context(messages: list[dict[str, str]]) -> bool:
+    for msg in messages[-8:]:
+        content = (msg.get("content") or "").strip()
+        if not content:
+            continue
+        low = _norm(content)
+        if re.search(
+            r"liga\s+ama|quienes\s+son|quienes\s+somos|que\s+es\s+la\s+liga|"
+            r"fundacion|institucion|mision|vision",
+            low,
+        ):
+            return True
+        if msg.get("role") == "assistant" and re.search(
+            r"liga ama salvar vidas|fundacion sin animo|desde 1976", low
+        ):
+            return True
+    return False
+
+
+def is_institution_query(text: str, history: list[dict[str, str]] | None = None) -> bool:
     low = _norm(text)
     if is_plan_liga_query(text):
         return False
     if re.search(r"\bplan\s*liga\b", low):
         return False
-    return bool(_INSTITUTION_RE.search(low))
+    if find_specialty_in_text(text):
+        return False
+    if _INSTITUTION_RE.search(low):
+        return True
+    if history and _INSTITUTION_FOLLOWUP_RE.match(low):
+        if _history_institution_context(history):
+            return True
+        return True
+    return False
 
 
 def _history_mentions_specialties(messages: list[dict[str, str]]) -> bool:

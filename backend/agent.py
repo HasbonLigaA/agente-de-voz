@@ -65,7 +65,7 @@ def answer_grounded(user_text: str, history: list[dict[str, str]]) -> str:
     if is_plan_liga_query(text):
         return answer_plan_liga(text)
 
-    if is_institution_query(text):
+    if is_institution_query(text, history):
         return answer_institution(text)
 
     if is_specialty_detail_query(text):

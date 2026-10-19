@@ -19,14 +19,14 @@ def format_plan_liga(user_message: str) -> str:
     org = PLAN_LIGA["organizacion"]
     lines: list[str] = []
 
-    if re.search(r"beneficio|que trae|incluye|ventaja", low):
+    if re.search(r"beneficio|que trae|incluye|ventaja|para\s+que\s+sirve", low):
         lines.append(
-            f"El {PLAN_LIGA['nombre']} de {org} es una membresía anual de salud. "
-            f"{PLAN_LIGA['resumen']}"
+            f"El {PLAN_LIGA['nombre']} es membresía anual de salud: {PLAN_LIGA['resumen']} "
+            f"Precio {PLAN_LIGA['precio_anual_texto']}. {PLAN_LIGA['beneficiarios']}."
         )
-        ben = "; ".join(PLAN_LIGA["beneficios"])
-        lines.append(f"Beneficios principales: {ben}.")
-        lines.append(f"Inversión: {PLAN_LIGA['precio_anual_texto']}. {PLAN_LIGA['beneficiarios']}.")
+        lines.append(
+            "Incluye tarifas preferenciales, prioridad en citas y acceso al portafolio de La Liga."
+        )
     elif re.search(r"precio|cuesta|vale|cobran|499", low):
         lines.append(
             f"El {PLAN_LIGA['nombre']} cuesta {PLAN_LIGA['precio_anual_texto']}. "
@@ -39,14 +39,13 @@ def format_plan_liga(user_message: str) -> str:
         lines.append(f"1) {pasos[0]}. 2) {pasos[1]}. 3) {pasos[2]}.")
         lines.append(f"Citas médicas: {PLAN_LIGA['contacto']['citas_medicas']}.")
     else:
-        lines.append(f"{PLAN_LIGA['nombre']}: {PLAN_LIGA['resumen']}")
-        lines.append(f"Precio: {PLAN_LIGA['precio_anual_texto']}. {PLAN_LIGA['beneficiarios']}.")
         lines.append(
-            "Beneficios: tarifas preferenciales, prioridad en citas y acceso al portafolio de servicios de La Liga."
+            f"{PLAN_LIGA['nombre']}: {PLAN_LIGA['resumen']} "
+            f"Precio {PLAN_LIGA['precio_anual_texto']}. {PLAN_LIGA['beneficiarios']}."
         )
 
-    lines.append(f"WhatsApp activación: {PLAN_LIGA['contacto']['whatsapp_activacion']}.")
-    return sanitize_institution_name("\n\n".join(lines))
+    lines.append(f"Activación: WhatsApp {PLAN_LIGA['contacto']['whatsapp_activacion']}.")
+    return sanitize_institution_name(" ".join(lines))
 
 
 def answer_plan_liga(user_message: str) -> str:

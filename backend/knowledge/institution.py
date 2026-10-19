@@ -48,6 +48,29 @@ INSTITUTION: dict = {
         "y acompañamiento a pacientes y familias, con voluntariado, tecnología y "
         "responsabilidad social."
     ),
+    # Textos breves para respuesta por voz
+    "pitch_voz": (
+        "La Liga Ama Salvar Vidas es una fundación sin ánimo de lucro en Pereira, activa desde 1976. "
+        "Brinda servicios de salud integrales: diagnóstico, tratamiento, prevención y "
+        "acompañamiento a pacientes y familias."
+    ),
+    "para_que_sirve_voz": (
+        "Sirve para ofrecer bienestar y salud a la comunidad, con atención humanizada, "
+        "tecnología y apoyo de voluntariado, desde la prevención hasta el tratamiento."
+    ),
+    "historia_voz": (
+        "Fundada el 12 de abril de 1976 en Pereira por Bernardo Ángel Marulanda y un grupo de "
+        "voluntarias, para servir a la población sin ánimo de lucro."
+    ),
+    "mision_voz": (
+        "Brindar bienestar y salud con amor, atención humanizada, tecnología y voluntariado "
+        "comprometido, integrando educación e investigación."
+    ),
+    "vision_voz": (
+        "Ser líder en diagnóstico y tratamiento, con soluciones integrales de salud y la mejor "
+        "experiencia para pacientes y familias."
+    ),
+    "valores_voz": "Respeto, transparencia, equidad, trabajo en equipo, empatía y responsabilidad.",
 }
 
 CONTACTO = {
