@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+
+<html lang="es">
+
+<head>
+
+  <meta charset="UTF-8" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <title>Agente de voz — prueba</title>
+
+  <link rel="stylesheet" href="/static/styles.css" />
+
+</head>
+
+<body>
+
+  <main class="panel">
+
+    <header>
+
+      <h1>Agente de voz</h1>
+
+      <p class="subtitle">Escribe o usa el micrófono · respuesta con voz</p>
+
+      <div id="health" class="health" aria-live="polite">Comprobando servidor…</div>
+
+    </header>
+
+
+
+    <section id="log" class="log" aria-label="Conversación"></section>
+
+
+
+    <form id="chat-form" class="composer">
+
+      <label for="message">Tu mensaje</label>
+
+      <div class="input-row">
+
+        <textarea id="message" rows="3" placeholder="Escribe o pulsa el micrófono…" required></textarea>
+
+        <button type="button" id="mic-btn" class="mic-btn secondary" title="Grabar · pulsar otra vez para enviar">🎤</button>
+
+      </div>
+
+      <p id="mic-status" class="mic-status" aria-live="polite"></p>
+
+      <div class="actions">
+
+        <button type="button" id="new-session" class="secondary">Nueva conversación</button>
+
+        <button type="submit" id="send">Enviar</button>
+
+      </div>
+
+    </form>
+
+  </main>
+
+  <script src="/static/app.js?v=8"></script>
+
+</body>
+
+</html>
+
