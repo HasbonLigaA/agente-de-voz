@@ -16,30 +16,10 @@ from backend.knowledge.specialties import (
 )
 from backend.reply_format import bullet_list, finish_blocks
 
-_DETAIL_RE = re.compile(
-    r"(?i)\b("
-    r"para\s+que\s+sirve|que\s+es|qu[eé]\s+es|"
-    r"hablame\s+de|cu[eé]ntame\s+sobre|explicame|"
-    r"cu[aá]ntos?\s+especialistas|"
-    r"informaci[oó]n\s+(de|sobre)\s+la\s+especialidad"
-    r")\b"
-)
-
-_EXPLAIN_ALL_RE = re.compile(
-    r"(?i)\b("
-    r"explic(a|ame|ar)|descr(i|í)(be|beme|pcion)|detall(e|ada)|"
-    r"para\s+que\s+sirve\s+cada|hablame\s+de\s+(las\s+)?todas"
-    r")\b"
-)
-
 
 def _norm(text: str) -> str:
     t = unicodedata.normalize("NFD", text.lower())
     return "".join(c for c in t if unicodedata.category(c) != "Mn")
-
-
-def is_specialty_detail_query(text: str) -> bool:
-    return bool(_DETAIL_RE.search(_norm(text)) or find_specialty_in_text(text))
 
 
 def _specialty_line(item: dict[str, str | int], *, with_description: bool) -> str:
@@ -102,41 +82,28 @@ def format_specialty_not_in_catalog(mentioned: str) -> str:
     )
 
 
-def answer_specialties(user_message: str) -> str:
+def answer_specialties(
+    user_message: str,
+    *,
+    mode: str | None = None,
+    specialty_name: str | None = None,
+) -> str:
     low = _norm(user_message)
-    explain_all = bool(_EXPLAIN_ALL_RE.search(low))
 
-    name = find_specialty_in_text(user_message)
-    if name and is_known_specialty(name):
-        if is_specialty_detail_query(user_message) or name:
-            return format_specialty_detail(name)
-    if name and not is_known_specialty(name):
-        raw = _extract_mentioned_specialty(user_message)
-        return format_specialty_not_in_catalog(raw or "esa especialidad")
-    return format_all_specialties(with_descriptions=explain_all)
-
-
-def _extract_mentioned_specialty(text: str) -> str | None:
-    low = _norm(text)
-    m = re.search(
-        r"(oncolog[ií]a|cardiolog[ií]a|pediatr[ií]a|neurolog[ií]a|psiquiatr[ií]a)",
-        low,
-    )
-    if m:
-        return m.group(1).capitalize()
-    return find_specialty_in_text(text)
-
-
-def answer_specialty_topic(user_message: str) -> str | None:
-    """Una especialidad concreta o aviso si no está en catálogo."""
-    low = _norm(user_message)
-    onc = re.search(r"\boncolog", low)
-    if onc:
+    if re.search(r"\boncolog", low):
         return format_specialty_not_in_catalog("Oncología")
 
-    name = find_specialty_in_text(user_message)
-    if not name:
-        return None
-    if is_known_specialty(name):
-        return format_specialty_detail(name)
-    return format_specialty_not_in_catalog(name)
+    name = specialty_name or find_specialty_in_text(user_message)
+    if name and is_known_specialty(name):
+        if mode != "list":
+            return format_specialty_detail(name)
+    if name and not is_known_specialty(name):
+        return format_specialty_not_in_catalog(name)
+
+    resolved_mode = (mode or "list").lower()
+    with_descriptions = resolved_mode in ("explain_all", "detail")
+    return format_all_specialties(with_descriptions=with_descriptions)
+
+
+def answer_specialty_topic(user_message: str, specialty_name: str | None = None) -> str | None:
+    return answer_specialties(user_message, mode="detail", specialty_name=specialty_name)

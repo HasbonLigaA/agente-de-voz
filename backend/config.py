@@ -95,6 +95,14 @@ STT_POLISH_NUM_CTX = _env_int("STT_POLISH_NUM_CTX", "2048")
 # Plan Liga: plantilla sin Ollama = respuesta casi instantánea
 PLAN_LIGA_USE_LLM = _env_bool("PLAN_LIGA_USE_LLM", "false")
 
+# Interpreta cualquier mensaje con Ollama + catálogo completo (recomendado)
+GROUNDED_ANSWER_WITH_LLM = _env_bool("GROUNDED_ANSWER_WITH_LLM", "true")
+GROUNDED_ANSWER_TEMPERATURE = _env_float("GROUNDED_ANSWER_TEMPERATURE", "0.15")
+GROUNDED_ANSWER_PROMPT = os.getenv("GROUNDED_ANSWER_PROMPT", "")
+
+# Respaldo si falla Ollama: clasificador + plantillas
+ROUTING_USE_LLM = _env_bool("ROUTING_USE_LLM", "true")
+
 # Devuelve texto al cliente y genera voz en segundo plano (/api/speech)
 CHAT_TEXT_FIRST = _env_bool("CHAT_TEXT_FIRST", "true")
 

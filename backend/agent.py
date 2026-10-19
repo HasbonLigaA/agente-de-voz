@@ -1,55 +1,85 @@
-"""Respuestas solo con datos autorizados (sin conocimiento externo ni Ollama libre)."""
+"""Respuestas ancladas al catálogo institucional."""
 
 from __future__ import annotations
 
-import re
-import unicodedata
+import logging
 
 from backend.brand import sanitize_institution_name
 from backend.config import (
     GREETING_REPLY,
+    GROUNDED_ANSWER_WITH_LLM,
     GROUNDED_ONLY,
     IN_SCOPE_HELP_REPLY,
+    OLLAMA_TEXT_MODEL,
     OUT_OF_SCOPE_REPLY,
 )
-from backend.reply_format import bullet_list, finish_blocks
 from backend.contact_reply import answer_contact
+from backend.grounded_llm import answer_from_catalog, is_short_greeting
 from backend.institution_reply import answer_institution
-from backend.knowledge import (
-    is_institution_query,
-    is_plan_liga_query,
-    is_specialties_list_query,
-    is_specialty_detail_query,
-)
+from backend.intent_router import RoutedIntent, route_user_message
 from backend.plan_liga_reply import answer_plan_liga
-from backend.specialties_reply import answer_specialties, answer_specialty_topic
+from backend.reply_format import bullet_list, finish_blocks
+from backend.specialties_reply import answer_specialties
 
-_GREETING_RE = re.compile(
-    r"(?i)^\s*("
-    r"hola|buenos?\s+d[ií]as|buenas?\s+tardes|buenas?\s+noches|"
-    r"gracias|muchas\s+gracias|adi[oó]s|chao|ok|vale"
-    r")\s*[.!?]*\s*$"
-)
-
-_HELP_RE = re.compile(
-    r"(?i)\b("
-    r"en\s+que\s+me\s+puedes?\s+ayudar|que\s+puedes?\s+hacer|"
-    r"qu[eé]\s+informaci[oó]n\s+tienes|temas\s+disponibles|ayuda"
-    r")\b"
-)
-
-_CONTACT_RE = re.compile(
-    r"(?i)\b("
-    r"citas?\s+m[eé]dicas?|tel[eé]fono|whatsapp|contacto|"
-    r"direcci[oó]n|ubicaci[oó]n|correo|email|c[oó]mo\s+llegar|"
-    r"n[uú]mero\s+para\s+citas"
-    r")\b"
-)
+logger = logging.getLogger(__name__)
 
 
-def _norm(text: str) -> str:
-    t = unicodedata.normalize("NFD", text.lower())
-    return "".join(c for c in t if unicodedata.category(c) != "Mn")
+def _help_reply() -> str:
+    intro = IN_SCOPE_HELP_REPLY.strip() or "Puedo informarte sobre:"
+    if not intro.endswith(":"):
+        intro = intro.rstrip(".") + ":"
+    return finish_blocks(
+        [
+            intro,
+            bullet_list(
+                [
+                    "La Liga Ama Salvar Vidas: misión, visión, valores e historia",
+                    "Plan Liga: beneficios, precio, activación y tarifas",
+                    "13 especialidades médicas con descripción y especialistas",
+                    "Contacto para citas médicas e información institucional",
+                ]
+            ),
+        ]
+    )
+
+
+def _dispatch(intent: RoutedIntent, user_text: str) -> str:
+    match intent.topic:
+        case "greeting":
+            return sanitize_institution_name(GREETING_REPLY.strip() or _help_reply())
+        case "help":
+            return _help_reply()
+        case "plan_liga":
+            return answer_plan_liga(user_text, aspect=intent.plan_liga_aspect)
+        case "institution":
+            return answer_institution(user_text, aspect=intent.institution_aspect)
+        case "specialty_detail":
+            return answer_specialties(
+                user_text,
+                mode="detail",
+                specialty_name=intent.specialty_name,
+            )
+        case "specialties":
+            return answer_specialties(
+                user_text,
+                mode=intent.specialties_mode or "list",
+                specialty_name=intent.specialty_name,
+            )
+        case "contact":
+            return answer_contact()
+        case _:
+            return sanitize_institution_name(OUT_OF_SCOPE_REPLY)
+
+
+def _answer_with_templates(user_text: str, history: list[dict[str, str]]) -> str:
+    prior = history[:-1] if history and history[-1].get("role") == "user" else history
+    intent = route_user_message(user_text, prior)
+    reply = _dispatch(intent, user_text)
+    if intent.topic == "out_of_scope" and not GROUNDED_ONLY:
+        from backend.llm import build_messages, chat
+
+        return chat(build_messages(history))
+    return reply
 
 
 def answer_grounded(user_text: str, history: list[dict[str, str]]) -> str:
@@ -57,48 +87,14 @@ def answer_grounded(user_text: str, history: list[dict[str, str]]) -> str:
     if not text:
         return OUT_OF_SCOPE_REPLY
 
-    if _GREETING_RE.match(text) and GREETING_REPLY.strip():
+    if is_short_greeting(text) and GREETING_REPLY.strip():
         return sanitize_institution_name(GREETING_REPLY.strip())
 
-    if _HELP_RE.search(_norm(text)):
-        intro = IN_SCOPE_HELP_REPLY.strip() or "Puedo informarte sobre:"
-        if not intro.endswith(":"):
-            intro = intro.rstrip(".") + ":"
-        return finish_blocks(
-            [
-                intro,
-                bullet_list(
-                    [
-                        "La Liga Ama Salvar Vidas: misión, visión, valores e historia",
-                        "Plan Liga: beneficios, precio, activación y tarifas",
-                        "13 especialidades médicas con descripción y especialistas",
-                        "Contacto para citas médicas e información institucional",
-                    ]
-                ),
-            ]
-        )
+    use_llm = GROUNDED_ANSWER_WITH_LLM and bool(OLLAMA_TEXT_MODEL)
+    if use_llm:
+        try:
+            return answer_from_catalog(history)
+        except Exception as exc:
+            logger.warning("Respuesta con catálogo LLM falló (%s); usando plantillas.", exc)
 
-    if is_plan_liga_query(text):
-        return answer_plan_liga(text)
-
-    if is_institution_query(text, history):
-        return answer_institution(text)
-
-    if is_specialty_detail_query(text):
-        detail = answer_specialty_topic(text)
-        if detail:
-            return detail
-
-    if is_specialties_list_query(text, history):
-        return answer_specialties(text)
-
-    if _CONTACT_RE.search(_norm(text)):
-        return answer_contact()
-
-    if GROUNDED_ONLY:
-        return sanitize_institution_name(OUT_OF_SCOPE_REPLY)
-
-    # Reservado: modo no recomendado (Ollama libre)
-    from backend.llm import build_messages, chat
-
-    return chat(build_messages(history))
+    return _answer_with_templates(text, history)
