@@ -26,11 +26,18 @@ from backend.config import (
 )
 from backend.agent import answer_grounded
 from backend.sessions import create_session, get_session
-from backend.stt import stt_available, transcribe_audio_bytes
+from backend.stt import stt_available, transcribe_audio_bytes, warm_whisper_model
 from backend.voice_polish import polish_transcript
 from backend.tts import synthesize_speech
 
 app = FastAPI(title="Agente de voz", version="0.1.0")
+
+
+@app.on_event("startup")
+async def _warm_stt_on_startup() -> None:
+    if stt_available():
+        await asyncio.to_thread(warm_whisper_model)
+
 
 # Permite probar desde otro dispositivo (celular en la misma red o tunel HTTPS).
 from fastapi.middleware.cors import CORSMiddleware

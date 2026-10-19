@@ -13,7 +13,9 @@ from pathlib import Path
 from backend.config import (
     STT_ENGINE,
     STT_FALLBACK_GOOGLE,
+    STT_FALLBACK_ON_LOW_CONFIDENCE,
     STT_LANGUAGE,
+    WHISPER_BEAM_SIZE,
     WHISPER_COMPUTE,
     WHISPER_DEVICE,
     WHISPER_INITIAL_PROMPT,
@@ -110,6 +112,13 @@ def looks_hallucinated(text: str) -> bool:
     return False
 
 
+def warm_whisper_model() -> None:
+    """Precarga el modelo en arranque para que la primera transcripción no espere."""
+    if STT_ENGINE == "google" or not stt_available():
+        return
+    _load_whisper()
+
+
 def _load_whisper():
     global _model
     if _model is not None:
@@ -163,7 +172,7 @@ def _transcribe_whisper_wav(wav_path: Path) -> tuple[str, float | None]:
     whisper_kw: dict = {
         "language": "es",
         "task": "transcribe",
-        "beam_size": 5,
+        "beam_size": max(1, WHISPER_BEAM_SIZE),
         "best_of": 1,
         "vad_filter": True,
         "vad_parameters": {
@@ -230,14 +239,13 @@ def transcribe_audio_bytes(data: bytes, *, suffix: str = ".webm") -> str:
                         avg_lp,
                         text[:120],
                     )
+                    needs_google = not text or looks_hallucinated(text)
+                    if STT_FALLBACK_ON_LOW_CONFIDENCE and _whisper_low_confidence(avg_lp):
+                        needs_google = True
                     if (
                         STT_FALLBACK_GOOGLE
                         and STT_ENGINE in ("whisper", "auto")
-                        and (
-                            not text
-                            or looks_hallucinated(text)
-                            or _whisper_low_confidence(avg_lp)
-                        )
+                        and needs_google
                         and importlib.util.find_spec("speech_recognition") is not None
                     ):
                         logger.info("Whisper poco fiable; probando Google STT…")

@@ -226,7 +226,12 @@ async function fetchSpeechAndPlay(replyText) {
   }
 }
 
-async function sendChatMessage(text, { fromVoice = false } = {}) {
+function playReplyVoice(data) {
+  if (data.audio_base64) void playAudioBase64(data.audio_base64);
+  else void fetchSpeechAndPlay(data.reply_text);
+}
+
+async function sendChatMessage(text, { fromVoice = false, fastReturn = false } = {}) {
   const trimmed = text.trim();
   if (!trimmed || chatBusy) return;
   if (isRepetitiveGarbage(trimmed)) {
@@ -250,10 +255,12 @@ async function sendChatMessage(text, { fromVoice = false } = {}) {
     if (!res.ok) throw new Error(data.detail || "Error en el chat");
     sessionId = data.session_id;
     appendBubble("assistant", data.reply_text);
-    if (data.audio_base64) {
+    if (fastReturn) {
+      playReplyVoice(data);
+    } else if (data.audio_base64) {
       await playAudioBase64(data.audio_base64);
     } else {
-      await fetchSpeechAndPlay(data.reply_text);
+      void fetchSpeechAndPlay(data.reply_text);
     }
   } catch (err) {
     setAssistantPresence(null);
@@ -333,7 +340,7 @@ async function stopRecorderAndGetBlob(recorder) {
 
 async function sendTranscribedAudio(blob, filename) {
   const mime = blob.type || "application/octet-stream";
-  setMicStatus("Transcribiendo y enviando tu consulta…", true);
+  setMicStatus("Transcribiendo audio…", true);
   setComposerDisabled(true);
   try {
     const { text } = await transcribeBlob(blob, mime, filename);
@@ -342,7 +349,8 @@ async function sendTranscribedAudio(blob, filename) {
       return;
     }
     messageEl.value = "";
-    await sendChatMessage(text, { fromVoice: true });
+    setMicStatus("");
+    await sendChatMessage(text, { fromVoice: true, fastReturn: true });
   } catch (err) {
     setMicStatus(String(err.message || err));
   } finally {
