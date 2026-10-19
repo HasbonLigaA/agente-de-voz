@@ -12,6 +12,7 @@ from backend.config import (
     IN_SCOPE_HELP_REPLY,
     OUT_OF_SCOPE_REPLY,
 )
+from backend.reply_format import bullet_list, finish_blocks
 from backend.contact_reply import answer_contact
 from backend.institution_reply import answer_institution
 from backend.knowledge import (
@@ -59,8 +60,23 @@ def answer_grounded(user_text: str, history: list[dict[str, str]]) -> str:
     if _GREETING_RE.match(text) and GREETING_REPLY.strip():
         return sanitize_institution_name(GREETING_REPLY.strip())
 
-    if _HELP_RE.search(_norm(text)) and IN_SCOPE_HELP_REPLY.strip():
-        return sanitize_institution_name(IN_SCOPE_HELP_REPLY.strip())
+    if _HELP_RE.search(_norm(text)):
+        intro = IN_SCOPE_HELP_REPLY.strip() or "Puedo informarte sobre:"
+        if not intro.endswith(":"):
+            intro = intro.rstrip(".") + ":"
+        return finish_blocks(
+            [
+                intro,
+                bullet_list(
+                    [
+                        "La Liga Ama Salvar Vidas: misión, visión, valores e historia",
+                        "Plan Liga: beneficios, precio, activación y tarifas",
+                        "13 especialidades médicas con descripción y especialistas",
+                        "Contacto para citas médicas e información institucional",
+                    ]
+                ),
+            ]
+        )
 
     if is_plan_liga_query(text):
         return answer_plan_liga(text)

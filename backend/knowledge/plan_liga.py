@@ -22,9 +22,10 @@ PLAN_LIGA: dict = {
     "beneficiarios": "1 titular + 4 beneficiarios (hasta 5 usuarios), sin exigencia de grado de consanguinidad",
     "beneficios": [
         "Tarifas preferenciales en consultas, exámenes y procedimientos",
-        "Hasta 5 usuarios: 1 titular y 4 beneficiarios",
-        "Prioridad en programación de citas y servicios diagnósticos",
-        "Acceso al portafolio integral de servicios de La Liga",
+        "Hasta 5 usuarios: 1 titular + 4 beneficiarios, sin exigencia de grado de consanguinidad",
+        "Atención oportuna: prioridad en citas y servicios diagnósticos",
+        "Pago único anual, sin cuotas de manejo ni costos ocultos",
+        "Acceso preferencial a todo el portafolio de servicios de La Liga",
     ],
     "activacion_pasos": [
         "Realizar el pago en línea o presencial",

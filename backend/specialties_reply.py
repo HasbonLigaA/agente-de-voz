@@ -5,9 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from backend.brand import sanitize_institution_name
 from backend.knowledge.specialties import (
-    SPECIALISTS_SOURCE_URL,
     SPECIALTY_AREAS_COUNT,
     SPECIALTY_BY_NAME,
     SPECIALTY_CATALOG,
@@ -16,6 +14,7 @@ from backend.knowledge.specialties import (
     find_specialty_in_text,
     is_known_specialty,
 )
+from backend.reply_format import bullet_list, finish_blocks
 
 _DETAIL_RE = re.compile(
     r"(?i)\b("
@@ -23,6 +22,13 @@ _DETAIL_RE = re.compile(
     r"hablame\s+de|cu[eé]ntame\s+sobre|explicame|"
     r"cu[aá]ntos?\s+especialistas|"
     r"informaci[oó]n\s+(de|sobre)\s+la\s+especialidad"
+    r")\b"
+)
+
+_EXPLAIN_ALL_RE = re.compile(
+    r"(?i)\b("
+    r"explic(a|ame|ar)|descr(i|í)(be|beme|pcion)|detall(e|ada)|"
+    r"para\s+que\s+sirve\s+cada|hablame\s+de\s+(las\s+)?todas"
     r")\b"
 )
 
@@ -36,13 +42,32 @@ def is_specialty_detail_query(text: str) -> bool:
     return bool(_DETAIL_RE.search(_norm(text)) or find_specialty_in_text(text))
 
 
-def format_all_specialties() -> str:
-    partes = [f"{item['nombre']} ({item['especialistas']})" for item in SPECIALTY_CATALOG]
-    return sanitize_institution_name(
-        f"La Liga Ama Salvar Vidas tiene {TOTAL_SPECIALISTS_LABEL} especialistas en "
-        f"{SPECIALTY_AREAS_COUNT} áreas: "
-        + ", ".join(partes)
-        + ". Citas: +57 606 333 3340."
+def _specialty_line(item: dict[str, str | int], *, with_description: bool) -> str:
+    name = str(item["nombre"])
+    count = int(item["especialistas"])
+    if not with_description:
+        return f"{name} ({count} especialista{'s' if count != 1 else ''})"
+    desc = str(item["descripcion"])
+    return f"{name} ({count}): {desc}"
+
+
+def format_all_specialties(*, with_descriptions: bool = False) -> str:
+    lines = [
+        _specialty_line(item, with_description=with_descriptions)
+        for item in SPECIALTY_CATALOG
+    ]
+    title = (
+        f"La Liga Ama Salvar Vidas tiene {TOTAL_SPECIALISTS_LABEL} especialistas "
+        f"en {SPECIALTY_AREAS_COUNT} áreas:"
+    )
+    if with_descriptions:
+        title = f"Especialidades de La Liga Ama Salvar Vidas ({SPECIALTY_AREAS_COUNT} áreas):"
+    return finish_blocks(
+        [
+            title,
+            bullet_list(lines),
+            "Citas médicas: +57 606 333 3340.",
+        ]
     )
 
 
@@ -51,23 +76,36 @@ def format_specialty_detail(name: str) -> str:
     n = int(item["especialistas"])
     desc = str(item["descripcion"])
     plural = "especialistas" if n != 1 else "especialista"
-    return sanitize_institution_name(
-        f"{name}: {desc} Hay {n} {plural} en La Liga Ama Salvar Vidas. Citas: +57 606 333 3340."
+    return finish_blocks(
+        [
+            name,
+            f"Descripción: {desc}",
+            f"En La Liga Ama Salvar Vidas hay {n} {plural} en esta área.",
+            "Citas médicas: +57 606 333 3340.",
+        ]
     )
 
 
 def format_specialty_not_in_catalog(mentioned: str) -> str:
-    lista = ", ".join(SPECIALTIES)
-    return sanitize_institution_name(
-        f"En el directorio oficial de La Liga Ama Salvar Vidas no aparece la especialidad "
-        f"«{mentioned}» como una de las {SPECIALTY_AREAS_COUNT} áreas publicadas "
-        f"({TOTAL_SPECIALISTS_LABEL} especialistas en total).\n\n"
-        f"Las áreas disponibles son: {lista}.\n\n"
-        f"Si buscas orientación sobre citas, llama al +57 606 333 3340."
+    areas = [
+        f"{name} ({SPECIALTY_BY_NAME[name]['especialistas']})"
+        for name in SPECIALTIES
+    ]
+    return finish_blocks(
+        [
+            f"En el directorio oficial de La Liga Ama Salvar Vidas no aparece "
+            f"«{mentioned}» entre las {SPECIALTY_AREAS_COUNT} áreas publicadas "
+            f"({TOTAL_SPECIALISTS_LABEL} especialistas en total).",
+            "Áreas disponibles:\n" + bullet_list(areas),
+            "Para orientación sobre citas: +57 606 333 3340.",
+        ]
     )
 
 
 def answer_specialties(user_message: str) -> str:
+    low = _norm(user_message)
+    explain_all = bool(_EXPLAIN_ALL_RE.search(low))
+
     name = find_specialty_in_text(user_message)
     if name and is_known_specialty(name):
         if is_specialty_detail_query(user_message) or name:
@@ -75,7 +113,7 @@ def answer_specialties(user_message: str) -> str:
     if name and not is_known_specialty(name):
         raw = _extract_mentioned_specialty(user_message)
         return format_specialty_not_in_catalog(raw or "esa especialidad")
-    return format_all_specialties()
+    return format_all_specialties(with_descriptions=explain_all)
 
 
 def _extract_mentioned_specialty(text: str) -> str | None:

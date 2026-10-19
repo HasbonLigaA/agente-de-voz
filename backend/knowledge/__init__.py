@@ -9,9 +9,10 @@ from backend.knowledge.specialties import find_specialty_in_text
 
 _PLAN_LIGA_RE = re.compile(
     r"(?i)\b("
-    r"plan\s*liga|membres[ií]a|beneficiarios?|titular|"
+    r"plan\s*liga|membres[ií]a|beneficiarios?|titular|beneficios?|"
     r"499\s*000|cu[aá]nto\s+(cuesta|vale|cobran)|precio\s+del\s+plan|"
-    r"activar\s+(el\s+)?plan|comprobante\s+de\s+pago"
+    r"activar\s+(el\s+)?plan|comprobante\s+de\s+pago|"
+    r"que\s+es\s+(el\s+)?plan"
     r")\b"
 )
 
