@@ -55,6 +55,27 @@ OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
 
 AGENT_SYSTEM_PROMPT = os.getenv("AGENT_SYSTEM_PROMPT", "")
 
+# Solo respuestas desde catálogos / plantillas (sin inventar con Ollama)
+GROUNDED_ONLY = _env_bool("GROUNDED_ONLY", "true")
+
+OUT_OF_SCOPE_REPLY = os.getenv(
+    "OUT_OF_SCOPE_REPLY",
+    "Solo puedo informarte con los datos que tengo: Plan Liga, especialidades médicas "
+    "y contacto para citas. Si tu pregunta es otra, un asesor en citas médicas puede ayudarte al +57 606 333 3340.",
+)
+
+GREETING_REPLY = os.getenv(
+    "GREETING_REPLY",
+    "Hola, soy el asistente de La Liga Ama Salvar Vidas. "
+    "Puedo contarte sobre el Plan Liga, las especialidades disponibles o cómo contactar citas médicas.",
+)
+
+IN_SCOPE_HELP_REPLY = os.getenv(
+    "IN_SCOPE_HELP_REPLY",
+    "Puedo informarte sobre: el Plan Liga (precio, beneficios y activación), "
+    "la lista completa de especialidades médicas, y teléfonos, WhatsApp y dirección de La Liga Ama Salvar Vidas.",
+)
+
 TTS_VOICE = os.getenv("TTS_VOICE", "")
 
 WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", "")

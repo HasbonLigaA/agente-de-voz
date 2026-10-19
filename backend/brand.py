@@ -22,10 +22,23 @@ _REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
+_WEB_DEFLECT = re.compile(
+    r"(?im)^[^\n]*("
+    r"visita(?:r)?\s+(?:la\s+)?(?:p[aá]gina|web|sitio)|"
+    r"revisa(?:r)?\s+(?:la\s+)?(?:p[aá]gina|web|sitio)|"
+    r"mira(?:r)?\s+(?:en\s+)?(?:la\s+)?(?:p[aá]gina|web)|"
+    r"consulta(?:r)?\s+(?:la\s+)?(?:p[aá]gina|web|sitio)|"
+    r"puedes?\s+ver(?:las|los)?\s+(?:completas?|en\s+la\s+web)"
+    r")[^\n]*\n?"
+)
+
+
 def sanitize_institution_name(text: str) -> str:
     if not text:
         return text
     out = text
     for pattern, repl in _REPLACEMENTS:
         out = pattern.sub(repl, out)
+    out = _WEB_DEFLECT.sub("", out)
+    out = re.sub(r"\n{3,}", "\n\n", out).strip()
     return out

@@ -24,9 +24,7 @@ from backend.config import (
     WELCOME_MESSAGE,
     WHISPER_MODEL_SIZE,
 )
-from backend.knowledge import is_plan_liga_query
-from backend.llm import build_messages, chat
-from backend.plan_liga_reply import answer_plan_liga
+from backend.agent import answer_grounded
 from backend.sessions import create_session, get_session
 from backend.stt import stt_available, transcribe_audio_bytes
 from backend.voice_polish import polish_transcript
@@ -186,13 +184,10 @@ async def api_chat(body: ChatRequest):
     session.messages.append({"role": "user", "content": user_text})
 
     try:
-        if is_plan_liga_query(user_text):
-            reply = await asyncio.to_thread(answer_plan_liga, user_text)
-        else:
-            reply = chat(build_messages(session.messages))
+        reply = await asyncio.to_thread(answer_grounded, user_text, list(session.messages))
     except Exception as exc:
         session.messages.pop()
-        raise HTTPException(status_code=502, detail=f"No se pudo contactar Ollama: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Error al generar respuesta: {exc}") from exc
 
     if not reply:
         session.messages.pop()
