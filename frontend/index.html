@@ -1,66 +1,46 @@
 <!DOCTYPE html>
-
 <html lang="es">
-
 <head>
-
   <meta charset="UTF-8" />
-
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <title>Agente de voz — prueba</title>
-
+  <title>La Liga AmaSalvarVidas</title>
   <link rel="stylesheet" href="/static/styles.css" />
-
 </head>
-
 <body>
-
   <main class="panel">
-
-    <header>
-
-      <h1>Agente de voz</h1>
-
-      <p class="subtitle">Escribe o usa el micrófono · respuesta con voz</p>
-
-      <div id="health" class="health" aria-live="polite">Comprobando servidor…</div>
-
+    <header class="brand">
+      <img src="/static/logo-liga.png" alt="" class="brand-logo" width="56" height="56" />
+      <div class="brand-text">
+        <h1>La Liga AmaSalvarVidas</h1>
+        <p class="subtitle">Asistente virtual · consulta por texto o voz</p>
+      </div>
     </header>
+    <div id="health" class="health" aria-live="polite">Comprobando servidor…</div>
+
+    <div id="assistant-presence" class="assistant-presence" hidden>
+      <img id="assistant-avatar" class="assistant-avatar" src="/static/logo-liga.png" alt="La Liga AmaSalvarVidas" width="72" height="72" />
+      <p id="presence-label" class="presence-label">Respondiendo…</p>
+    </div>
 
     <section id="log" class="log" aria-label="Conversación"></section>
 
-
-
     <form id="chat-form" class="composer">
-
-      <label for="message">Tu mensaje</label>
-
+      <label for="message">Tu consulta</label>
       <div class="input-row">
-
-        <textarea id="message" rows="3" placeholder="Escribe o pulsa el micrófono…" required></textarea>
-
-        <button type="button" id="mic-btn" class="mic-btn secondary" title="Grabar · pulsar otra vez para enviar">🎤</button>
-
+        <textarea id="message" rows="2" placeholder="Escribe tu pregunta o usa el micrófono…" required></textarea>
+        <button type="button" id="mic-btn" class="mic-btn secondary" title="Grabar voz · pulsa de nuevo para enviar" aria-label="Micrófono">
+          <svg class="mic-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-2.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          </svg>
+        </button>
       </div>
-
       <p id="mic-status" class="mic-status" aria-live="polite"></p>
-
       <div class="actions">
-
         <button type="button" id="new-session" class="secondary">Nueva conversación</button>
-
         <button type="submit" id="send">Enviar</button>
-
       </div>
-
     </form>
-
   </main>
-
-  <script src="/static/app.js?v=13"></script>
-
+  <script src="/static/app.js?v=14"></script>
 </body>
-
 </html>
-
