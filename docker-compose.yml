@@ -1,0 +1,67 @@
+services:
+  agente-voz:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: agente-de-voz:latest
+    container_name: agente-de-voz
+    ports:
+      - "${PORT:-8767}:${PORT:-8767}"
+    env_file:
+      - .env
+    environment:
+      - PORT=${PORT:-8767}
+      - OLLAMA_HOST=${OLLAMA_HOST}
+      - OLLAMA_TEXT_MODEL=${OLLAMA_TEXT_MODEL:-qwen2.5:14b}
+      - PUBLIC_HTTPS_URL=${PUBLIC_HTTPS_URL:-}
+      - TRAEFIK_HOST=${TRAEFIK_HOST:-agente-voz.laliga.org.co}
+      - PYTHONUNBUFFERED=1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    shm_size: "2gb"
+    volumes:
+      - whisper-cache:/root/.cache/huggingface
+      - tunnel-info:/tunnel:ro
+    restart: unless-stopped
+    networks:
+      - default
+      - traefik-public
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.http.routers.agente-voz.rule=Host(`${TRAEFIK_HOST:-agente-voz.laliga.org.co}`)
+      - traefik.http.routers.agente-voz.entrypoints=websecure
+      - traefik.http.routers.agente-voz.tls=true
+      - traefik.http.services.agente-voz.loadbalancer.server.port=8767
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:$${PORT:-8767}/api/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 120s
+
+  # HTTPS rápido para micrófono en celular (URL en: docker compose logs cloudflared)
+  cloudflared:
+    build:
+      context: .
+      dockerfile: Dockerfile.cloudflared
+    image: agente-de-voz-cloudflared:latest
+    container_name: agente-voz-cloudflared
+    volumes:
+      - tunnel-info:/tunnel
+    environment:
+      - TUNNEL_TARGET=http://agente-voz:${PORT:-8767}
+    depends_on:
+      agente-voz:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - default
+
+volumes:
+  whisper-cache:
+  tunnel-info:
+
+networks:
+  traefik-public:
+    external: true

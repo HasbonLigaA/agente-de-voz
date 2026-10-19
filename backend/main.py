@@ -14,8 +14,10 @@ from backend.config import (
     OLLAMA_HOST,
     OLLAMA_TEXT_MODEL,
     PORT,
+    public_https_url,
     STATIC_DIR,
     STT_ENGINE,
+    TRAEFIK_HOST,
     TTS_VOICE,
     WELCOME_MESSAGE,
     WHISPER_MODEL_SIZE,
@@ -107,6 +109,9 @@ def health():
         "stt_engine": STT_ENGINE,
         "whisper_model": WHISPER_MODEL_SIZE,
         "lan_urls": _lan_urls(PORT),
+        "public_https_url": public_https_url() or None,
+        "traefik_host": TRAEFIK_HOST or None,
+        "mic_requires_https": True,
     }
 
 

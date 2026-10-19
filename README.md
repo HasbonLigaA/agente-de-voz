@@ -20,15 +20,26 @@ copy .env.example .env
 
 ## Ejecución
 
+### Docker (recomendado en servidor)
+
+```bash
+cp .env.example .env   # y ajusta OLLAMA_HOST, etc.
+docker compose up -d --build
+```
+
+La app queda en el puerto definido en `PORT` (por defecto **8767**), escuchando en todas las interfaces.
+
+### Desarrollo local (Python)
+
 ```powershell
 cd "c:\Dev\HASBON\Procesos\Agente de voz"
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-uvicorn backend.main:app --reload --host 127.0.0.1 --port 8765
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8767
 ```
 
-Abre [http://127.0.0.1:8765](http://127.0.0.1:8765).
+Abre [http://127.0.0.1:8767](http://127.0.0.1:8767).
 
 ## Probar desde el celular
 

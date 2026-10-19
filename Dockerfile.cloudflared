@@ -1,0 +1,11 @@
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates curl grep \
+    && curl -fsSL -o /usr/local/bin/cloudflared \
+      "https://github.com/cloudflare/cloudflared/releases/download/2025.2.1/cloudflared-linux-amd64" \
+    && chmod +x /usr/local/bin/cloudflared
+
+COPY scripts/cloudflared-entry.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

@@ -22,6 +22,28 @@ def _env_int(name: str, default: str) -> int:
 # Servidor HTTP (uvicorn)
 PORT = _env_int("PORT", "8767")
 
+_TUNNEL_URL_FILE = Path("/tunnel/public_https_url")
+
+
+def _read_tunnel_url_file() -> str:
+    try:
+        if _TUNNEL_URL_FILE.is_file():
+            return _TUNNEL_URL_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    return ""
+
+
+TRAEFIK_HOST = os.getenv("TRAEFIK_HOST", "agente-voz.laliga.org.co").strip()
+
+
+def public_https_url() -> str:
+    """URL HTTPS para micrófono (env o túnel Cloudflare escrito en volumen compartido)."""
+    env_url = os.getenv("PUBLIC_HTTPS_URL", "").strip()
+    if env_url:
+        return env_url
+    return _read_tunnel_url_file()
+
 # Ollama
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 OLLAMA_TEXT_MODEL = os.getenv("OLLAMA_TEXT_MODEL") or os.getenv("OLLAMA_MODEL") or ""
@@ -46,7 +68,7 @@ STT_LANGUAGE = os.getenv("STT_LANGUAGE", "es-CO")
 STT_FALLBACK_GOOGLE = _env_bool("STT_FALLBACK_GOOGLE", "true")
 WHISPER_INITIAL_PROMPT = os.getenv("WHISPER_INITIAL_PROMPT", "")
 
-STT_POLISH_WITH_LLM = _env_bool("STT_POLISH_WITH_LLM", "true")
+STT_POLISH_WITH_LLM = _env_bool("STT_POLISH_WITH_LLM", "false")
 STT_POLISH_PROMPT = os.getenv("STT_POLISH_PROMPT", "")
 STT_POLISH_TEMPERATURE = _env_float("STT_POLISH_TEMPERATURE", "0.15")
 STT_POLISH_NUM_CTX = _env_int("STT_POLISH_NUM_CTX", "2048")

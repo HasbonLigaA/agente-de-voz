@@ -2,6 +2,7 @@ let sessionId = null;
 let lastAudio = null;
 let chatBusy = false;
 let sttBackendOk = false;
+let publicMicUrl = null;
 
 const logEl = document.getElementById("log");
 const form = document.getElementById("chat-form");
@@ -11,12 +12,46 @@ const newSessionBtn = document.getElementById("new-session");
 const healthEl = document.getElementById("health");
 const micBtn = document.getElementById("mic-btn");
 const micStatusEl = document.getElementById("mic-status");
+const httpsBannerEl = document.getElementById("https-banner");
+const httpsBannerLinkEl = document.getElementById("https-banner-link");
 
 let micStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let micRecording = false;
 let recordStartedAt = 0;
+
+function isIOS() {
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+function micAllowedHere() {
+  return Boolean(window.isSecureContext);
+}
+
+function ensureMediaDevices() {
+  if (!navigator.mediaDevices) {
+    navigator.mediaDevices = {};
+  }
+  if (navigator.mediaDevices.getUserMedia) {
+    return true;
+  }
+  const legacy =
+    navigator.getUserMedia ||
+    navigator.webkitGetUserMedia ||
+    navigator.mozGetUserMedia;
+  if (!legacy) {
+    return false;
+  }
+  navigator.mediaDevices.getUserMedia = (constraints) =>
+    new Promise((resolve, reject) => {
+      legacy.call(navigator, constraints, resolve, reject);
+    });
+  return true;
+}
 
 function normalizeWords(text) {
   const m = text.toLowerCase().match(/[a-záéíóúüñ]+/gi);
@@ -68,17 +103,54 @@ function setComposerDisabled(disabled) {
   if (micBtn) micBtn.disabled = disabled;
 }
 
+function updateHttpsBanner() {
+  if (!httpsBannerEl || !httpsBannerLinkEl) return;
+  if (micAllowedHere()) {
+    httpsBannerEl.classList.add("hidden");
+    return;
+  }
+  const url = publicMicUrl || "";
+  if (!url || url.startsWith("http://")) {
+    httpsBannerEl.classList.remove("hidden");
+    httpsBannerLinkEl.textContent = "Esperando URL HTTPS del servidor…";
+    httpsBannerLinkEl.removeAttribute("href");
+    return;
+  }
+  httpsBannerEl.classList.remove("hidden");
+  httpsBannerLinkEl.href = url;
+  httpsBannerLinkEl.textContent = url.replace(/^https:\/\//, "");
+}
+
+function redirectToMicHttpsUrl() {
+  if (!publicMicUrl || !publicMicUrl.startsWith("https://")) {
+    setMicStatus(
+      "Micrófono requiere HTTPS. Abre el enlace amarillo arriba o pide la URL segura al administrador."
+    );
+    return false;
+  }
+  if (publicMicUrl.replace(/\/$/, "") === window.location.origin.replace(/\/$/, "")) {
+    return true;
+  }
+  window.location.href = publicMicUrl;
+  return false;
+}
+
 async function refreshHealth() {
   try {
     const res = await fetch("/api/health", { cache: "no-store" });
     const data = await res.json();
     sttBackendOk = Boolean(data.stt_available);
+    if (data.public_https_url) {
+      publicMicUrl = data.public_https_url;
+    }
     const engine = data.stt_engine || "whisper";
     const wh = data.whisper_model ? `/${data.whisper_model}` : "";
+    const micHint = micAllowedHere() ? "mic OK" : "mic→HTTPS";
     healthEl.textContent = sttBackendOk
-      ? `Backend · ${data.ollama_model} · mic→${engine}${wh}`
+      ? `Backend · ${data.ollama_model} · ${engine}${wh} · ${micHint}`
       : `Backend · pip install faster-whisper imageio-ffmpeg`;
     healthEl.className = "health ok";
+    updateHttpsBanner();
   } catch {
     sttBackendOk = false;
     healthEl.textContent = "Backend apagado (inicia uvicorn en este equipo).";
@@ -96,7 +168,11 @@ async function playAudioBase64(b64) {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   lastAudio = new Audio(URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" })));
-  await lastAudio.play();
+  try {
+    await lastAudio.play();
+  } catch {
+    /* autoplay puede pedir gesto del usuario en móvil */
+  }
 }
 
 async function sendChatMessage(text) {
@@ -147,8 +223,13 @@ async function transcribeBlob(blob, mime) {
 }
 
 function pickRecorderMime() {
-  for (const t of ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"]) {
-    if (MediaRecorder.isTypeSupported(t)) return t;
+  const types = isIOS()
+    ? ["audio/mp4", "audio/aac", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]
+    : ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+  for (const t of types) {
+    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) {
+      return t;
+    }
   }
   return "";
 }
@@ -162,13 +243,13 @@ function releaseMicStream() {
 
 async function stopRecorderAndGetBlob(recorder) {
   return new Promise((resolve) => {
-    const mime = recorder.mimeType || "audio/webm";
+    const mime = recorder.mimeType || pickRecorderMime() || "audio/webm";
     recorder.addEventListener(
       "stop",
       () => {
         setTimeout(() => {
           resolve(new Blob(recordedChunks, { type: mime }));
-        }, 200);
+        }, 250);
       },
       { once: true }
     );
@@ -184,12 +265,23 @@ async function stopRecorderAndGetBlob(recorder) {
 async function startMicRecording() {
   if (micRecording || chatBusy) return;
   await refreshHealth();
+
+  if (!micAllowedHere()) {
+    if (!redirectToMicHttpsUrl()) return;
+  }
+
   if (!sttBackendOk) {
     setMicStatus("Instala: pip install faster-whisper imageio-ffmpeg python-multipart");
     return;
   }
-  if (!navigator.mediaDevices?.getUserMedia) {
-    setMicStatus("Micrófono no soportado aquí. Usa Chrome en localhost.");
+
+  if (typeof MediaRecorder === "undefined") {
+    setMicStatus("Este navegador no puede grabar audio. Prueba Chrome o Safari actualizado.");
+    return;
+  }
+
+  if (!ensureMediaDevices()) {
+    setMicStatus("Micrófono no disponible en este navegador.");
     return;
   }
 
@@ -199,12 +291,18 @@ async function startMicRecording() {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
-        channelCount: 1,
-        sampleRate: { ideal: 48000 },
       },
+      video: false,
     });
-  } catch {
-    setMicStatus("Permiso de micrófono denegado (candado en la barra de direcciones).");
+  } catch (err) {
+    const name = err?.name || "";
+    if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+      setMicStatus("Permiso de micrófono denegado. Actívalo en ajustes del navegador.");
+    } else if (name === "NotFoundError") {
+      setMicStatus("No se encontró micrófono en este dispositivo.");
+    } else {
+      setMicStatus(`No se pudo usar el micrófono (${name || "error"}).`);
+    }
     return;
   }
 
@@ -213,14 +311,28 @@ async function startMicRecording() {
   try {
     mediaRecorder = mime ? new MediaRecorder(micStream, { mimeType: mime }) : new MediaRecorder(micStream);
   } catch {
-    mediaRecorder = new MediaRecorder(micStream);
+    try {
+      mediaRecorder = new MediaRecorder(micStream);
+    } catch {
+      releaseMicStream();
+      setMicStatus("No se pudo iniciar la grabación en este dispositivo.");
+      return;
+    }
   }
 
   mediaRecorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) recordedChunks.push(e.data);
   };
 
-  mediaRecorder.start(250);
+  try {
+    mediaRecorder.start(isIOS() ? 1000 : 250);
+  } catch {
+    releaseMicStream();
+    mediaRecorder = null;
+    setMicStatus("Error al grabar. Vuelve a pulsar 🎤.");
+    return;
+  }
+
   recordStartedAt = Date.now();
   micRecording = true;
   micBtn?.classList.add("listening");
@@ -308,4 +420,16 @@ newSessionBtn.addEventListener("click", () => {
   messageEl.focus();
 });
 
+httpsBannerLinkEl?.addEventListener("click", (e) => {
+  if (!publicMicUrl || !publicMicUrl.startsWith("https://")) {
+    e.preventDefault();
+    void refreshHealth();
+  }
+});
+
 refreshHealth();
+setInterval(() => {
+  if (!micAllowedHere() && (!publicMicUrl || !publicMicUrl.startsWith("https://"))) {
+    void refreshHealth();
+  }
+}, 8000);
