@@ -4,14 +4,13 @@ import asyncio
 import base64
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from backend.brand import sanitize_institution_name
 from backend.config import (
-    CHAT_TEXT_FIRST,
     CORS_ALLOW_ORIGINS,
     OLLAMA_HOST,
     OLLAMA_TEXT_MODEL,
@@ -21,6 +20,7 @@ from backend.config import (
     TRAEFIK_HOST,
     app_public_https_url,
     TTS_VOICE,
+    TTS_VOICE_MAX_CHARS,
     WELCOME_MESSAGE,
     WHISPER_LANGUAGE,
     WHISPER_MODEL_SIZE,
@@ -30,7 +30,8 @@ from backend.agent import answer_grounded
 from backend.sessions import create_session, get_session
 from backend.stt import stt_available, transcribe_audio_bytes, warm_whisper_model
 from backend.voice_polish import polish_transcript
-from backend.tts import synthesize_speech
+from backend.tts import iter_speech_audio, synthesize_speech
+from backend.tts_prepare import compress_reply_for_voice
 
 app = FastAPI(title="Agente de voz", version="0.1.0")
 
@@ -221,6 +222,71 @@ async def api_speech(body: SpeechRequest):
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Error al generar voz: {exc}") from exc
     return {"audio_base64": audio_b64, "audio_mime": "audio/mpeg"}
+
+
+@app.post("/api/speech/stream")
+async def api_speech_stream(body: SpeechRequest):
+    text = sanitize_institution_name(body.text.strip())
+    speak = compress_reply_for_voice(text, max_chars=TTS_VOICE_MAX_CHARS)
+
+    async def audio_stream():
+        async for part in iter_speech_audio(speak):
+            yield part
+
+    return StreamingResponse(audio_stream(), media_type="audio/mpeg")
+
+
+@app.post("/api/voice/turn")
+async def api_voice_turn(
+    audio: UploadFile = File(...),
+    session_id: str | None = Form(default=None),
+):
+    """Transcribe + chat + TTS en una sola petición (menos espera que 3 llamadas)."""
+    if not stt_available():
+        raise HTTPException(status_code=503, detail="Transcripción no disponible.")
+    raw = await audio.read()
+    if len(raw) < 200:
+        raise HTTPException(status_code=400, detail="Grabación demasiado corta.")
+    suffix = ".webm"
+    if audio.filename and "." in audio.filename:
+        suffix = "." + audio.filename.rsplit(".", 1)[-1].lower()
+
+    try:
+        raw_text = await asyncio.to_thread(transcribe_audio_bytes, raw, suffix=suffix)
+        user_text = await asyncio.to_thread(polish_transcript, raw_text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"No se pudo transcribir: {exc}") from exc
+    user_text = user_text.strip()
+    if not user_text:
+        raise HTTPException(status_code=400, detail="No se entendió el audio.")
+
+    session = get_session(session_id) if session_id else None
+    if session is None:
+        session = create_session()
+    session.messages.append({"role": "user", "content": user_text})
+
+    try:
+        reply = await asyncio.to_thread(answer_grounded, user_text, list(session.messages))
+    except Exception as exc:
+        session.messages.pop()
+        raise HTTPException(status_code=502, detail=f"Error al generar respuesta: {exc}") from exc
+    if not reply:
+        session.messages.pop()
+        raise HTTPException(status_code=502, detail="Ollama devolvió una respuesta vacía.")
+
+    reply = sanitize_institution_name(reply)
+    session.messages.append({"role": "assistant", "content": reply})
+    speak = compress_reply_for_voice(reply, max_chars=TTS_VOICE_MAX_CHARS)
+
+    async def audio_stream():
+        async for part in iter_speech_audio(speak):
+            yield part
+
+    return StreamingResponse(
+        audio_stream(),
+        media_type="audio/mpeg",
+        headers={"X-Session-Id": session.id},
+    )
 
 
 @app.get("/")

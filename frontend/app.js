@@ -29,7 +29,7 @@ let recordStartedAt = 0;
 let voiceModeOpen = false;
 let voiceBusy = false;
 let speechGeneration = 0;
-let speechFetchAbort = null;
+let voiceTurnAbort = null;
 
 function isIOS() {
   return (
@@ -122,19 +122,28 @@ function setVoiceAvatarState(state) {
   voiceModeAvatarEl.classList.toggle("thinking", state === "thinking");
 }
 
-function stopActiveSpeech() {
+function isAssistantSpeaking() {
+  return Boolean(lastAudio && !lastAudio.paused && !lastAudio.ended);
+}
+
+function interruptVoicePipeline() {
   speechGeneration += 1;
-  if (speechFetchAbort) {
-    speechFetchAbort.abort();
-    speechFetchAbort = null;
+  if (voiceTurnAbort) {
+    voiceTurnAbort.abort();
+    voiceTurnAbort = null;
   }
   if (lastAudio) {
     lastAudio.pause();
     lastAudio.currentTime = 0;
-    URL.revokeObjectURL(lastAudio.src);
+    if (lastAudio.src?.startsWith("blob:")) URL.revokeObjectURL(lastAudio.src);
     lastAudio = null;
   }
+  voiceBusy = false;
   setVoiceAvatarState(null);
+}
+
+function stopActiveSpeech() {
+  interruptVoicePipeline();
 }
 
 async function refreshHealth() {
@@ -165,60 +174,59 @@ async function ensureSecureContextForMic() {
   return false;
 }
 
-async function playAudioBase64(b64, gen = speechGeneration) {
-  if (!b64 || gen !== speechGeneration) return;
+async function playAudioBlob(blob, gen = speechGeneration) {
+  if (!blob?.size || gen !== speechGeneration) return;
   if (lastAudio) {
     lastAudio.pause();
-    URL.revokeObjectURL(lastAudio.src);
+    if (lastAudio.src?.startsWith("blob:")) URL.revokeObjectURL(lastAudio.src);
   }
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const audio = new Audio(URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" })));
+  const audio = new Audio(URL.createObjectURL(blob));
   lastAudio = audio;
   audio.addEventListener("ended", () => {
     if (lastAudio === audio && gen === speechGeneration) {
       setVoiceAvatarState(null);
       setVoiceModeStatus("Listo · pulsa para hablar");
       voiceBusy = false;
-      if (voiceModeMicBtn) voiceModeMicBtn.disabled = false;
     }
   });
   setVoiceAvatarState("speaking");
-  setVoiceModeStatus("Hablando…");
+  setVoiceModeStatus("Hablando… · pulsa el mic para cortar");
   try {
     await audio.play();
   } catch {
     if (gen === speechGeneration) {
       setVoiceAvatarState(null);
       voiceBusy = false;
-      if (voiceModeMicBtn) voiceModeMicBtn.disabled = false;
+      setVoiceModeStatus("No se pudo reproducir el audio.");
     }
   }
 }
 
-async function fetchSpeechAndPlay(replyText, gen = speechGeneration) {
-  if (!replyText?.trim() || gen !== speechGeneration) return;
-  speechFetchAbort = new AbortController();
-  try {
-    const res = await fetch("/api/speech", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: replyText }),
-      signal: speechFetchAbort.signal,
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Error al generar voz");
-    await playAudioBase64(data.audio_base64, gen);
-  } catch (err) {
-    if (err?.name === "AbortError") return;
-    setVoiceModeStatus(String(err.message || err));
-    setVoiceAvatarState(null);
-    voiceBusy = false;
-    if (voiceModeMicBtn) voiceModeMicBtn.disabled = false;
-  } finally {
-    speechFetchAbort = null;
+async function consumeSpeechStream(res, gen) {
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("Respuesta de voz inválida.");
+  const parts = [];
+  setVoiceModeStatus("Generando voz…");
+  setVoiceAvatarState("thinking");
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (gen !== speechGeneration) {
+      try {
+        await reader.cancel();
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    if (value?.length) parts.push(value);
+    if (done) break;
   }
+
+  if (gen !== speechGeneration || !parts.length) return;
+  voiceBusy = false;
+  const blob = new Blob(parts, { type: "audio/mpeg" });
+  await playAudioBlob(blob, gen);
 }
 
 async function sendChatMessage(text) {
@@ -315,7 +323,7 @@ async function ensureMicReady() {
 }
 
 async function startMicRecording() {
-  if (micRecording || voiceBusy) return;
+  if (micRecording) return;
   await refreshHealth();
   await ensureMicReady();
 
@@ -373,37 +381,52 @@ async function stopMicRecording(send) {
   await processVoiceTurn(blob);
 }
 
+function voiceTurnFilename(blob) {
+  const t = blob.type || "";
+  if (t.includes("mp4")) return "voz.m4a";
+  if (t.includes("ogg")) return "voz.ogg";
+  if (t.includes("wav")) return "voz.wav";
+  return "voz.webm";
+}
+
 async function processVoiceTurn(blob) {
-  voiceBusy = true;
-  if (voiceModeMicBtn) voiceModeMicBtn.disabled = true;
-  stopActiveSpeech();
+  interruptVoicePipeline();
   const gen = speechGeneration;
+  voiceBusy = true;
+  voiceTurnAbort = new AbortController();
+
+  const formData = new FormData();
+  formData.append("audio", blob, voiceTurnFilename(blob));
+  if (sessionId) formData.append("session_id", sessionId);
 
   try {
-    setVoiceModeStatus("Transcribiendo…");
+    setVoiceModeStatus("Procesando tu mensaje…");
     setVoiceAvatarState("thinking");
-    const text = (await transcribeBlob(blob, blob.type)).trim();
-    if (!text) throw new Error("No se entendió el audio.");
-
-    setVoiceModeStatus("Pensando…");
-    const res = await fetch("/api/chat", {
+    const res = await fetch("/api/voice/turn", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text, session_id: sessionId }),
+      body: formData,
+      signal: voiceTurnAbort.signal,
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Error en el chat");
-    sessionId = data.session_id;
-
-    setVoiceModeStatus("Generando voz…");
-    await fetchSpeechAndPlay(data.reply_text, gen);
-  } catch (err) {
-    if (gen === speechGeneration) {
-      setVoiceModeStatus(String(err.message || err));
-      setVoiceAvatarState(null);
-      voiceBusy = false;
-      if (voiceModeMicBtn) voiceModeMicBtn.disabled = false;
+    if (!res.ok) {
+      let detail = "Error en modo voz";
+      try {
+        const errBody = await res.json();
+        detail = errBody.detail || detail;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
     }
+    const sid = res.headers.get("X-Session-Id");
+    if (sid) sessionId = sid;
+    await consumeSpeechStream(res, gen);
+  } catch (err) {
+    if (err?.name === "AbortError" || gen !== speechGeneration) return;
+    setVoiceModeStatus(String(err.message || err));
+    setVoiceAvatarState(null);
+    voiceBusy = false;
+  } finally {
+    voiceTurnAbort = null;
   }
 }
 
@@ -419,8 +442,7 @@ function openVoiceMode() {
 
 function closeVoiceMode() {
   if (micRecording) void stopMicRecording(false);
-  stopActiveSpeech();
-  voiceBusy = false;
+  interruptVoicePipeline();
   voiceModeOpen = false;
   if (voiceModeEl) {
     voiceModeEl.hidden = true;
@@ -447,10 +469,16 @@ voiceModeCloseBtn?.addEventListener("click", closeVoiceMode);
 voiceModeEl?.querySelector("[data-voice-close]")?.addEventListener("click", closeVoiceMode);
 
 voiceModeMicBtn?.addEventListener("click", async () => {
-  if (voiceBusy) return;
   try {
-    if (micRecording) await stopMicRecording(true);
-    else await startMicRecording();
+    if (micRecording) {
+      await stopMicRecording(true);
+      return;
+    }
+    if (voiceBusy || isAssistantSpeaking()) {
+      interruptVoicePipeline();
+      setVoiceModeStatus("Grabando… pulsa otra vez para enviar");
+    }
+    await startMicRecording();
   } catch (err) {
     setVoiceModeStatus(String(err.message || err));
   }

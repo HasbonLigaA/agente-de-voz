@@ -63,3 +63,16 @@ def prepare_text_for_speech(text: str) -> str:
     )
     out = re.sub(r"\s+", " ", out).strip()
     return out
+
+
+def compress_reply_for_voice(text: str, max_chars: int = 3200) -> str:
+    """Menos pausas y longitud acotada para TTS más ágil en modo voz."""
+    if not text:
+        return text
+    out = text.replace("•", " ").replace("·", " ")
+    out = re.sub(r"\n+", ". ", out)
+    out = re.sub(r"\s+", " ", out).strip()
+    if max_chars > 0 and len(out) > max_chars:
+        cut = out[: max_chars - 48].rsplit(" ", 1)[0]
+        out = f"{cut}… Para más detalle, pregunta por el chat escrito."
+    return out

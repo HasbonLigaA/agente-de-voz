@@ -73,6 +73,9 @@ IN_SCOPE_HELP_REPLY = os.getenv(
 )
 
 TTS_VOICE = os.getenv("TTS_VOICE", "")
+# Velocidad edge-tts (ej. +12%, +18%). Más alto = respuesta por voz más rápida.
+TTS_RATE = os.getenv("TTS_RATE", "+15%").strip() or "+15%"
+TTS_VOICE_MAX_CHARS = _env_int("TTS_VOICE_MAX_CHARS", "3200")
 
 WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", "")
 
