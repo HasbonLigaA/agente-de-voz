@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=2" />
 </head>
 <body>
   <div class="app-bg" aria-hidden="true"></div>
@@ -35,17 +35,19 @@
         </div>
       </div>
 
-      <section id="log" class="message-list" aria-label="Conversación"></section>
-      <div id="empty-state" class="empty-state">
-        <div class="empty-icon" aria-hidden="true">
-          <img src="/static/logo-liga.png" alt="" width="56" height="56" />
-        </div>
-        <p class="empty-title">¿En qué te ayudamos hoy?</p>
-        <p class="empty-hint">Plan Liga, especialidades, contacto o datos de la institución.</p>
-        <div class="quick-chips" role="group" aria-label="Sugerencias">
-          <button type="button" class="chip" data-prompt="¿Qué beneficios tiene el Plan Liga?">Plan Liga</button>
-          <button type="button" class="chip" data-prompt="¿Qué especialidades hay?">Especialidades</button>
-          <button type="button" class="chip" data-prompt="Contacto para citas médicas">Contacto</button>
+      <div class="chat-messages">
+        <section id="log" class="message-list" aria-label="Conversación"></section>
+        <div id="empty-state" class="empty-state">
+          <div class="empty-icon" aria-hidden="true">
+            <img src="/static/logo-liga.png" alt="" width="56" height="56" />
+          </div>
+          <p class="empty-title">¿En qué te ayudamos hoy?</p>
+          <p class="empty-hint">Plan Liga, especialidades, contacto o datos de la institución.</p>
+          <div class="quick-chips" role="group" aria-label="Sugerencias">
+            <button type="button" class="chip" data-prompt="¿Qué beneficios tiene el Plan Liga?">Plan Liga</button>
+            <button type="button" class="chip" data-prompt="¿Qué especialidades hay?">Especialidades</button>
+            <button type="button" class="chip" data-prompt="Contacto para citas médicas">Contacto</button>
+          </div>
         </div>
       </div>
     </div>
