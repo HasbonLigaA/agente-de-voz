@@ -10,11 +10,30 @@ def _cop_amount_phrase(amount: int) -> str:
         return "cero pesos colombianos"
     if amount < 1000:
         return f"{amount} pesos colombianos"
-    miles = amount // 1000
-    rest = amount % 1000
-    if rest == 0:
-        return f"{miles} mil pesos colombianos"
-    return f"{miles} mil {rest} pesos colombianos"
+
+    millones = amount // 1_000_000
+    resto = amount % 1_000_000
+    partes: list[str] = []
+
+    if millones == 1:
+        partes.append("1 millón")
+    elif millones > 1:
+        partes.append(f"{millones} millones")
+
+    if resto >= 1000:
+        miles = resto // 1000
+        unidades = resto % 1000
+        if miles == 1:
+            partes.append("1 mil")
+        elif miles > 1:
+            partes.append(f"{miles} mil")
+        if unidades > 0:
+            partes.append(str(unidades))
+    elif resto > 0:
+        partes.append(str(resto))
+
+    cuerpo = " ".join(partes) if partes else str(amount)
+    return f"{cuerpo} pesos colombianos"
 
 
 def _parse_colombian_amount(raw: str) -> int:
