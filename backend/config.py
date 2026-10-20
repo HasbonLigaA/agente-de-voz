@@ -128,7 +128,8 @@ VOICE_STREAM_LLM = _env_bool("VOICE_STREAM_LLM", "true")
 VOICE_GROUNDED_PROMPT = os.getenv(
     "VOICE_GROUNDED_PROMPT",
     "Modo conversación por voz: responde directo y completo según KNOWLEDGE, "
-    "pero ve al grano; si hay muchos ítems, los más importantes primero.",
+    "pero ve al grano; si hay muchos ítems, los más importantes primero. "
+    "Usa viñetas «•» o frases, no markdown con asteriscos ni almohadillas.",
 )
 
 # CORS (front servido desde el mismo host suele no hacer falta; útil en pruebas)
