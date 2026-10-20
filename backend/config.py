@@ -77,15 +77,25 @@ TTS_VOICE = os.getenv("TTS_VOICE", "")
 WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", "")
 
 # STT
-STT_ENGINE = os.getenv("STT_ENGINE", "whisper").strip().lower()
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "small")
+# auto = Google (es-CO) primero si hay internet; si falla, Whisper local
+# google = solo Google (rápido, requiere red) | whisper = solo local
+STT_ENGINE = os.getenv("STT_ENGINE", "auto").strip().lower()
+STT_LANGUAGE = os.getenv("STT_LANGUAGE", "es-CO")
+STT_FALLBACK_GOOGLE = _env_bool("STT_FALLBACK_GOOGLE", "false")
+STT_FALLBACK_ON_LOW_CONFIDENCE = _env_bool("STT_FALLBACK_ON_LOW_CONFIDENCE", "false")
+
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "int8")
-STT_LANGUAGE = os.getenv("STT_LANGUAGE", "es-CO")
-STT_FALLBACK_GOOGLE = _env_bool("STT_FALLBACK_GOOGLE", "true")
-STT_FALLBACK_ON_LOW_CONFIDENCE = _env_bool("STT_FALLBACK_ON_LOW_CONFIDENCE", "false")
+WHISPER_CPU_THREADS = _env_int("WHISPER_CPU_THREADS", "0")
+WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "es").strip().lower() or "es"
 WHISPER_BEAM_SIZE = _env_int("WHISPER_BEAM_SIZE", "1")
-WHISPER_INITIAL_PROMPT = os.getenv("WHISPER_INITIAL_PROMPT", "")
+WHISPER_VAD_FILTER = _env_bool("WHISPER_VAD_FILTER", "false")
+WHISPER_FAST_FFMPEG = _env_bool("WHISPER_FAST_FFMPEG", "true")
+WHISPER_INITIAL_PROMPT = os.getenv(
+    "WHISPER_INITIAL_PROMPT",
+    "Español colombiano. La Liga Ama Salvar Vidas. Plan Liga, membresía, citas médicas.",
+)
 
 STT_POLISH_WITH_LLM = _env_bool("STT_POLISH_WITH_LLM", "false")
 STT_POLISH_PROMPT = os.getenv("STT_POLISH_PROMPT", "")

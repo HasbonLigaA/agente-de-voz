@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import os
 import re
 import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -17,9 +19,13 @@ from backend.config import (
     STT_LANGUAGE,
     WHISPER_BEAM_SIZE,
     WHISPER_COMPUTE,
+    WHISPER_CPU_THREADS,
     WHISPER_DEVICE,
+    WHISPER_FAST_FFMPEG,
     WHISPER_INITIAL_PROMPT,
+    WHISPER_LANGUAGE,
     WHISPER_MODEL_SIZE,
+    WHISPER_VAD_FILTER,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,10 +35,12 @@ _model_lock = threading.Lock()
 
 
 def stt_available() -> bool:
-    if STT_ENGINE in ("google",):
+    if STT_ENGINE == "google":
         return importlib.util.find_spec("speech_recognition") is not None
     if STT_ENGINE in ("whisper", "auto"):
-        return importlib.util.find_spec("faster_whisper") is not None
+        if importlib.util.find_spec("faster_whisper") is not None:
+            return True
+        return importlib.util.find_spec("speech_recognition") is not None
     return importlib.util.find_spec("faster_whisper") is not None
 
 
@@ -55,8 +63,6 @@ def _bytes_to_wav_file(data: bytes, suffix: str) -> Path:
             tmp.write(data)
             webm_path = Path(tmp.name)
         wav_path = webm_path.with_suffix(".wav")
-        # dynaudnorm ayuda micrófonos de portátil (volumen bajo / ruido de ventilador).
-        af = "highpass=f=100,lowpass=f=7800,dynaudnorm=f=60:g=12:p=0.9"
         cmd = [
             ffmpeg,
             "-hide_banner",
@@ -65,16 +71,20 @@ def _bytes_to_wav_file(data: bytes, suffix: str) -> Path:
             "-y",
             "-i",
             str(webm_path),
-            "-af",
-            af,
-            "-ar",
-            "16000",
-            "-ac",
-            "1",
-            "-c:a",
-            "pcm_s16le",
-            str(wav_path),
         ]
+        if not WHISPER_FAST_FFMPEG:
+            cmd.extend(["-af", "highpass=f=100,lowpass=f=7800,dynaudnorm=f=60:g=12:p=0.9"])
+        cmd.extend(
+            [
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-c:a",
+                "pcm_s16le",
+                str(wav_path),
+            ]
+        )
         proc = subprocess.run(cmd, capture_output=True, check=False)
         if proc.returncode != 0 or not wav_path.is_file() or wav_path.stat().st_size < 2000:
             err = proc.stderr.decode("utf-8", errors="replace").strip()
@@ -105,6 +115,8 @@ def looks_hallucinated(text: str) -> bool:
         "amara.org",
         "www.",
         "http",
+        "thank you for watching",
+        "subscribe",
     )
     low = text.lower()
     if any(j in low for j in junk):
@@ -113,8 +125,7 @@ def looks_hallucinated(text: str) -> bool:
 
 
 def warm_whisper_model() -> None:
-    """Precarga el modelo en arranque para que la primera transcripción no espere."""
-    if STT_ENGINE == "google" or not stt_available():
+    if STT_ENGINE == "google" or not importlib.util.find_spec("faster_whisper"):
         return
     _load_whisper()
 
@@ -128,16 +139,27 @@ def _load_whisper():
             return _model
         from faster_whisper import WhisperModel
 
+        model_name = WHISPER_MODEL_SIZE
+        if re.search(r"\.en\b|english", model_name, re.I):
+            logger.warning(
+                "Modelo Whisper '%s' parece solo inglés. Usa base/small/tiny multilingüe y WHISPER_LANGUAGE=es.",
+                model_name,
+            )
+        cpu_threads = WHISPER_CPU_THREADS or min(8, (os.cpu_count() or 4))
         logger.info(
-            "Cargando Whisper %s (%s, %s)…",
-            WHISPER_MODEL_SIZE,
+            "Cargando Whisper %s (%s, %s, threads=%s, idioma=%s)…",
+            model_name,
             WHISPER_DEVICE,
             WHISPER_COMPUTE,
+            cpu_threads,
+            WHISPER_LANGUAGE,
         )
         _model = WhisperModel(
-            WHISPER_MODEL_SIZE,
+            model_name,
             device=WHISPER_DEVICE,
             compute_type=WHISPER_COMPUTE,
+            cpu_threads=cpu_threads,
+            num_workers=1,
         )
         return _model
 
@@ -148,15 +170,16 @@ def _transcribe_google_wav(wav_path: Path) -> str:
     recognizer = sr.Recognizer()
     recognizer.dynamic_energy_threshold = False
     recognizer.energy_threshold = 300
-    recognizer.pause_threshold = 0.8
+    recognizer.pause_threshold = 0.65
     with sr.AudioFile(str(wav_path)) as source:
         audio = recognizer.record(source)
     lang = STT_LANGUAGE.replace("_", "-")
     text = ""
-    for attempt_lang in (lang, "es-ES", "es-MX", "es"):
+    for attempt_lang in (lang, "es-CO", "es-419", "es-ES", "es-MX", "es"):
         try:
             text = recognizer.recognize_google(audio, language=attempt_lang)
             if text.strip():
+                logger.info("STT Google idioma=%s", attempt_lang)
                 break
         except sr.UnknownValueError:
             continue
@@ -167,27 +190,42 @@ def _transcribe_google_wav(wav_path: Path) -> str:
     return text.strip()
 
 
-def _transcribe_whisper_wav(wav_path: Path) -> tuple[str, float | None]:
+def _transcribe_whisper_wav(wav_path: Path) -> tuple[str, float | None, str | None]:
     model = _load_whisper()
+    lang = WHISPER_LANGUAGE if WHISPER_LANGUAGE != "auto" else "es"
     whisper_kw: dict = {
-        "language": "es",
+        "language": lang,
         "task": "transcribe",
         "beam_size": max(1, WHISPER_BEAM_SIZE),
         "best_of": 1,
-        "vad_filter": True,
-        "vad_parameters": {
-            "min_silence_duration_ms": 400,
-            "speech_pad_ms": 350,
-            "threshold": 0.45,
-        },
         "condition_on_previous_text": False,
-        "no_speech_threshold": 0.55,
-        "log_prob_threshold": -1.2,
+        "without_timestamps": True,
+        "no_speech_threshold": 0.5,
+        "log_prob_threshold": -1.0,
         "compression_ratio_threshold": 2.4,
     }
+    if WHISPER_VAD_FILTER:
+        whisper_kw["vad_filter"] = True
+        whisper_kw["vad_parameters"] = {
+            "min_silence_duration_ms": 300,
+            "speech_pad_ms": 200,
+            "threshold": 0.45,
+        }
+    else:
+        whisper_kw["vad_filter"] = False
+
     if WHISPER_INITIAL_PROMPT.strip():
         whisper_kw["initial_prompt"] = WHISPER_INITIAL_PROMPT.strip()
-    segments, _info = model.transcribe(str(wav_path), **whisper_kw)
+
+    segments, info = model.transcribe(str(wav_path), **whisper_kw)
+    detected = getattr(info, "language", None)
+    if detected and str(detected).lower() not in (lang, "es", "spa"):
+        logger.warning(
+            "Whisper detectó idioma %s (forzado %s). Revisa WHISPER_MODEL_SIZE (evita modelos .en).",
+            detected,
+            lang,
+        )
+
     parts: list[str] = []
     logprobs: list[float] = []
     for seg in segments:
@@ -198,7 +236,7 @@ def _transcribe_whisper_wav(wav_path: Path) -> tuple[str, float | None]:
             logprobs.append(float(seg.avg_logprob))
     text = re.sub(r"\s+", " ", " ".join(parts)).strip()
     avg_lp = sum(logprobs) / len(logprobs) if logprobs else None
-    return text, avg_lp
+    return text, avg_lp, detected
 
 
 def _whisper_low_confidence(avg_logprob: float | None) -> bool:
@@ -207,35 +245,50 @@ def _whisper_low_confidence(avg_logprob: float | None) -> bool:
     return avg_logprob < -0.85
 
 
+def _engine_order() -> list[str]:
+    if STT_ENGINE == "google":
+        return ["google"]
+    if STT_ENGINE == "whisper":
+        return ["whisper"]
+    # auto: Google primero (rápido + español nativo en la nube), Whisper como respaldo offline
+    return ["google", "whisper"]
+
+
 def transcribe_audio_bytes(data: bytes, *, suffix: str = ".webm") -> str:
     if not data:
         raise ValueError("Audio vacío.")
     suffix = suffix if suffix.startswith(".") else f".{suffix}"
 
+    t0 = time.perf_counter()
     wav_path: Path | None = None
     try:
         wav_path = _bytes_to_wav_file(data, suffix)
-        engines: list[str]
-        if STT_ENGINE == "auto":
-            engines = ["whisper", "google"]
-        elif STT_ENGINE == "google":
-            engines = ["google"]
-        else:
-            engines = ["whisper"]
-
+        t_wav = time.perf_counter()
+        engines = _engine_order()
         last_err: Exception | None = None
+
         for engine in engines:
             try:
                 if engine == "google":
                     if importlib.util.find_spec("speech_recognition") is None:
                         continue
                     text = _transcribe_google_wav(wav_path)
-                    logger.info("STT [google] %d bytes → %r", len(data), text[:120])
-                else:
-                    text, avg_lp = _transcribe_whisper_wav(wav_path)
                     logger.info(
-                        "STT [whisper] %d bytes avg_logprob=%s → %r",
+                        "STT [google] %d bytes en %.2fs → %r",
                         len(data),
+                        time.perf_counter() - t_wav,
+                        text[:120],
+                    )
+                else:
+                    if importlib.util.find_spec("faster_whisper") is None:
+                        continue
+                    text, avg_lp, detected = _transcribe_whisper_wav(wav_path)
+                    logger.info(
+                        "STT [whisper/%s] %d bytes en %.2fs lang=%s avg_logprob=%s → %r",
+                        WHISPER_MODEL_SIZE,
+                        len(data),
+                        time.perf_counter() - t_wav,
+                        detected or WHISPER_LANGUAGE,
                         avg_lp,
                         text[:120],
                     )
@@ -244,7 +297,6 @@ def transcribe_audio_bytes(data: bytes, *, suffix: str = ".webm") -> str:
                         needs_google = True
                     if (
                         STT_FALLBACK_GOOGLE
-                        and STT_ENGINE in ("whisper", "auto")
                         and needs_google
                         and importlib.util.find_spec("speech_recognition") is not None
                     ):
@@ -264,6 +316,7 @@ def transcribe_audio_bytes(data: bytes, *, suffix: str = ".webm") -> str:
                     "Transcripción poco fiable. Repite más despacio o escribe el mensaje."
                 )
                 continue
+            logger.info("STT total %.2fs (ffmpeg %.2fs)", time.perf_counter() - t0, t_wav - t0)
             return text
 
         if last_err:

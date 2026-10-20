@@ -182,12 +182,14 @@ async function refreshHealth() {
     if (data.app_https_url) {
       appHttpsUrl = data.app_https_url;
     }
-    const engine = data.stt_engine || "whisper";
+    const engine = data.stt_engine || "auto";
+    const sttLang = data.stt_language || "es-CO";
+    const whLang = data.whisper_language || "es";
     const wh = data.whisper_model ? `/${data.whisper_model}` : "";
     const micHint = window.isSecureContext ? "micrófono disponible" : "micrófono vía HTTPS";
     healthEl.textContent = sttBackendOk ? "En línea" : "Parcial";
     healthEl.title = sttBackendOk
-      ? `Servicio activo · ${data.ollama_model} · ${engine}${wh} · ${micHint}`
+      ? `STT ${engine} · ${sttLang} · whisper=${whLang}${wh} · ${data.ollama_model || "LLM"} · ${micHint}`
       : "Instala faster-whisper e imageio-ffmpeg";
     healthEl.className = "status-pill ok";
     if (!window.isSecureContext && appHttpsUrl) {
@@ -246,7 +248,10 @@ function playReplyVoice(data) {
   else void fetchSpeechAndPlay(data.reply_text);
 }
 
-async function sendChatMessage(text, { fromVoice = false, fastReturn = false } = {}) {
+async function sendChatMessage(
+  text,
+  { fromVoice = false, fastReturn = false, skipUserBubble = false } = {}
+) {
   const trimmed = text.trim();
   if (!trimmed || chatBusy) return;
   if (isRepetitiveGarbage(trimmed)) {
@@ -254,7 +259,7 @@ async function sendChatMessage(text, { fromVoice = false, fastReturn = false } =
     return;
   }
 
-  appendBubble("user", trimmed);
+  if (!skipUserBubble) appendBubble("user", trimmed);
   messageEl.value = "";
   setComposerDisabled(true);
   setAssistantPresence("thinking");
@@ -340,7 +345,7 @@ async function stopRecorderAndGetBlob(recorder) {
       () => {
         setTimeout(() => {
           resolve(new Blob(recordedChunks, { type: mime }));
-        }, 250);
+        }, 80);
       },
       { once: true }
     );
@@ -365,11 +370,11 @@ async function sendTranscribedAudio(blob, filename) {
     }
     messageEl.value = "";
     setMicStatus("");
-    await sendChatMessage(text, { fromVoice: true, fastReturn: true });
+    appendBubble("user", text);
+    void sendChatMessage(text, { fromVoice: true, fastReturn: true, skipUserBubble: true });
   } catch (err) {
     setMicStatus(String(err.message || err));
-  } finally {
-    if (!chatBusy) setComposerDisabled(false);
+    setComposerDisabled(false);
   }
 }
 

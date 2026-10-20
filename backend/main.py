@@ -22,7 +22,9 @@ from backend.config import (
     app_public_https_url,
     TTS_VOICE,
     WELCOME_MESSAGE,
+    WHISPER_LANGUAGE,
     WHISPER_MODEL_SIZE,
+    STT_LANGUAGE,
 )
 from backend.agent import answer_grounded
 from backend.sessions import create_session, get_session
@@ -120,7 +122,9 @@ def health():
         "tts_voice": TTS_VOICE,
         "stt_available": stt_available(),
         "stt_engine": STT_ENGINE,
+        "stt_language": STT_LANGUAGE,
         "whisper_model": WHISPER_MODEL_SIZE,
+        "whisper_language": WHISPER_LANGUAGE,
         "lan_urls": _lan_urls(PORT),
         "traefik_host": TRAEFIK_HOST or None,
         "app_https_url": app_public_https_url() or None,
