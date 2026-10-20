@@ -153,11 +153,15 @@ function setMicStatus(text, active = false) {
   micStatusEl.classList.toggle("active", active);
 }
 
-function setComposerDisabled(disabled) {
-  chatBusy = disabled;
+function setComposerDisabled(disabled, { markBusy = true } = {}) {
+  if (markBusy) chatBusy = disabled;
   sendBtn.disabled = disabled;
   messageEl.disabled = disabled;
   if (micBtn) micBtn.disabled = disabled;
+}
+
+function unlockComposerFully() {
+  setComposerDisabled(false, { markBusy: true });
 }
 
 function normalizeOrigin(url) {
@@ -253,7 +257,8 @@ async function sendChatMessage(
   { fromVoice = false, fastReturn = false, skipUserBubble = false } = {}
 ) {
   const trimmed = text.trim();
-  if (!trimmed || chatBusy) return;
+  if (!trimmed) return;
+  if (chatBusy) return;
   if (isRepetitiveGarbage(trimmed)) {
     setMicStatus("Texto repetido o poco claro. Repite o escribe.");
     return;
@@ -286,7 +291,7 @@ async function sendChatMessage(
     setAssistantPresence(null);
     appendBubble("assistant", `Error: ${err.message}`);
   } finally {
-    setComposerDisabled(false);
+    unlockComposerFully();
     messageEl.focus();
     if (fromVoice) setMicStatus("");
   }
@@ -361,25 +366,31 @@ async function stopRecorderAndGetBlob(recorder) {
 async function sendTranscribedAudio(blob, filename) {
   const mime = blob.type || "application/octet-stream";
   setMicStatus("Transcribiendo audio…", true);
-  setComposerDisabled(true);
+  // Bloquea UI pero NO chatBusy: si no, sendChatMessage no hace fetch y no hay red.
+  setComposerDisabled(true, { markBusy: false });
   try {
     const { text } = await transcribeBlob(blob, mime, filename);
     if (!text?.trim()) {
       setMicStatus("No se entendió. Intenta de nuevo.");
+      unlockComposerFully();
       return;
     }
     messageEl.value = "";
-    setMicStatus("");
+    setMicStatus("Enviando consulta…", true);
     appendBubble("user", text);
-    void sendChatMessage(text, { fromVoice: true, fastReturn: true, skipUserBubble: true });
+    await sendChatMessage(text, { fromVoice: true, fastReturn: true, skipUserBubble: true });
   } catch (err) {
     setMicStatus(String(err.message || err));
-    setComposerDisabled(false);
+    unlockComposerFully();
   }
 }
 
 async function startMicRecording() {
-  if (micRecording || chatBusy) return;
+  if (micRecording) return;
+  if (chatBusy) {
+    setMicStatus("Espera a que termine la respuesta actual…");
+    return;
+  }
   await refreshHealth();
 
   if (!window.isSecureContext) {
@@ -471,32 +482,39 @@ async function stopMicRecording(send) {
   micBtn?.classList.remove("listening");
   mediaRecorder = null;
 
-  if (!recorder || recorder.state === "inactive") {
+  try {
+    if (!recorder || recorder.state === "inactive") {
+      releaseMicStream();
+      if (send) setMicStatus("No se grabó. Pulsa el micrófono y habla.");
+      return;
+    }
+
+    setMicStatus("Procesando grabación…", true);
+    const blob = await stopRecorderAndGetBlob(recorder);
     releaseMicStream();
-    if (send) setMicStatus("No se grabó. Pulsa el micrófono y habla.");
-    return;
+    recordedChunks = [];
+
+    if (!send) {
+      setMicStatus("Grabación cancelada.");
+      return;
+    }
+
+    if (elapsed < 900) {
+      setMicStatus("Muy breve. Habla al menos 1 segundo y vuelve a pulsar el micrófono.");
+      return;
+    }
+
+    if (blob.size < 500) {
+      setMicStatus(`Audio muy bajo (${blob.size} bytes). Habla más fuerte o más cerca del micrófono.`);
+      return;
+    }
+
+    await sendTranscribedAudio(blob);
+  } catch (err) {
+    releaseMicStream();
+    setMicStatus(String(err.message || err));
+    unlockComposerFully();
   }
-
-  const blob = await stopRecorderAndGetBlob(recorder);
-  releaseMicStream();
-  recordedChunks = [];
-
-  if (!send) {
-    setMicStatus("Grabación cancelada.");
-    return;
-  }
-
-  if (elapsed < 1200) {
-    setMicStatus("Muy breve. Mantén el micrófono al menos 2 segundos mientras hablas.");
-    return;
-  }
-
-  if (blob.size < 800) {
-    setMicStatus(`Audio muy bajo (${blob.size} bytes). Habla más fuerte o más cerca del micrófono.`);
-    return;
-  }
-
-  await sendTranscribedAudio(blob);
 }
 
 micBtn?.addEventListener("click", () => {
@@ -529,4 +547,5 @@ document.querySelectorAll(".chip[data-prompt]").forEach((btn) => {
 
 messageEl?.addEventListener("input", autoResizeMessageField);
 
+unlockComposerFully();
 refreshHealth();
