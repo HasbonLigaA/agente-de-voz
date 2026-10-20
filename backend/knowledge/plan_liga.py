@@ -18,7 +18,7 @@ PLAN_LIGA: dict = {
         "tarifas preferenciales y atención oportuna en salud."
     ),
     "precio_anual_cop": 499_000,
-    "precio_anual_texto": "$499.000 COP al año (pago único, sin cuotas de manejo)",
+    "precio_anual_texto": "499.000 pesos colombianos al año (pago único, sin cuotas de manejo)",
     "beneficiarios": "1 titular + 4 beneficiarios (hasta 5 usuarios), sin exigencia de grado de consanguinidad",
     "beneficios": [
         "Tarifas preferenciales en consultas, exámenes y procedimientos",
@@ -34,8 +34,8 @@ PLAN_LIGA: dict = {
     ],
     "quien_puede": "Personas de cualquier edad, sin restricciones médicas para afiliarse",
     "tarifas_referencia": [
-        "Consulta especializada desde $89.900",
-        "Subespecialidades (neurocirugía, oncología, etc.) desde $129.900 a $144.900",
+        "Consulta especializada desde 89.900 pesos colombianos",
+        "Subespecialidades (neurocirugía, oncología, etc.) desde 129.900 a 144.900 pesos colombianos",
         "Resonancia, rayos X, TAC, laboratorio, mamografía, ecografía y demás servicios con tarifa diferencial",
     ],
     "contacto": {

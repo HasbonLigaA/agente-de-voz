@@ -27,6 +27,8 @@ let recordedChunks = [];
 let micRecording = false;
 let recordStartedAt = 0;
 let presenceMode = null;
+let speechGeneration = 0;
+let speechFetchAbort = null;
 
 function isIOS() {
   return (
@@ -207,8 +209,23 @@ async function refreshHealth() {
   }
 }
 
-async function playAudioBase64(b64) {
-  if (!b64) return;
+function stopActiveSpeech() {
+  speechGeneration += 1;
+  if (speechFetchAbort) {
+    speechFetchAbort.abort();
+    speechFetchAbort = null;
+  }
+  if (lastAudio) {
+    lastAudio.pause();
+    lastAudio.currentTime = 0;
+    URL.revokeObjectURL(lastAudio.src);
+    lastAudio = null;
+  }
+  setAssistantPresence(null);
+}
+
+async function playAudioBase64(b64, gen = speechGeneration) {
+  if (!b64 || gen !== speechGeneration) return;
   if (lastAudio) {
     lastAudio.pause();
     URL.revokeObjectURL(lastAudio.src);
@@ -223,33 +240,70 @@ async function playAudioBase64(b64) {
   try {
     await audio.play();
   } catch {
-    setAssistantPresence(null);
+    if (gen === speechGeneration) setAssistantPresence(null);
   }
 }
 
-async function fetchSpeechAndPlay(replyText) {
-  if (!replyText?.trim()) return;
+async function fetchSpeechForSession(sessionId, gen) {
+  if (!sessionId || gen !== speechGeneration) return;
+  speechFetchAbort = new AbortController();
+  try {
+    const res = await fetch(`/api/speech/for-session/${encodeURIComponent(sessionId)}`, {
+      cache: "no-store",
+      signal: speechFetchAbort.signal,
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (res.status === 409 || res.status === 404) return;
+      throw new Error(data.detail || "Error al obtener voz");
+    }
+    if (data.audio_base64) await playAudioBase64(data.audio_base64, gen);
+    else if (gen === speechGeneration) setAssistantPresence(null);
+  } catch (err) {
+    if (err?.name === "AbortError") return;
+    if (gen === speechGeneration) setAssistantPresence(null);
+  } finally {
+    speechFetchAbort = null;
+  }
+}
+
+async function fetchSpeechAndPlay(replyText, gen = speechGeneration) {
+  if (!replyText?.trim() || gen !== speechGeneration) return;
+  speechFetchAbort = new AbortController();
   try {
     const res = await fetch("/api/speech", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: replyText }),
+      signal: speechFetchAbort.signal,
     });
     const data = await res.json();
     if (!res.ok) {
-      setAssistantPresence(null);
+      if (gen === speechGeneration) setAssistantPresence(null);
       return;
     }
-    if (data.audio_base64) await playAudioBase64(data.audio_base64);
-    else setAssistantPresence(null);
-  } catch {
-    setAssistantPresence(null);
+    if (data.audio_base64) await playAudioBase64(data.audio_base64, gen);
+    else if (gen === speechGeneration) setAssistantPresence(null);
+  } catch (err) {
+    if (err?.name === "AbortError") return;
+    if (gen === speechGeneration) setAssistantPresence(null);
+  } finally {
+    speechFetchAbort = null;
   }
 }
 
 function playReplyVoice(data) {
-  if (data.audio_base64) void playAudioBase64(data.audio_base64);
-  else void fetchSpeechAndPlay(data.reply_text);
+  const gen = speechGeneration;
+  setAssistantPresence("speaking");
+  if (data.audio_base64) {
+    void playAudioBase64(data.audio_base64, gen);
+    return;
+  }
+  if (data.session_id) {
+    void fetchSpeechForSession(data.session_id, gen);
+    return;
+  }
+  void fetchSpeechAndPlay(data.reply_text, gen);
 }
 
 async function sendChatMessage(
@@ -264,6 +318,7 @@ async function sendChatMessage(
     return;
   }
 
+  stopActiveSpeech();
   if (!skipUserBubble) appendBubble("user", trimmed);
   messageEl.value = "";
   setComposerDisabled(true);
@@ -391,6 +446,7 @@ async function startMicRecording() {
     setMicStatus("Espera a que termine la respuesta actual…");
     return;
   }
+  stopActiveSpeech();
   await refreshHealth();
 
   if (!window.isSecureContext) {
@@ -530,6 +586,7 @@ form.addEventListener("submit", async (e) => {
 
 newSessionBtn.addEventListener("click", () => {
   if (micRecording) void stopMicRecording(false);
+  stopActiveSpeech();
   sessionId = null;
   logEl.innerHTML = "";
   syncEmptyState();

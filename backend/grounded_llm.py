@@ -38,6 +38,7 @@ Reglas obligatorias:
   separadas; evita un solo bloque de texto.
 - En seguimientos («¿y eso?», «¿cuánto?», «más info»), usa el historial para saber el tema.
 - Nombre correcto: La Liga Ama Salvar Vidas.
+- Precios siempre en pesos colombianos (COP). No uses dólares ni USD. Ejemplo: 499.000 pesos colombianos.
 
 KNOWLEDGE:
 """
