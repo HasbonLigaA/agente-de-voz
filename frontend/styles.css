@@ -579,9 +579,130 @@ textarea::placeholder {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.voice-open-btn {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.voice-mode {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: end center;
+  padding: 1rem 1rem max(1.25rem, env(safe-area-inset-bottom));
+}
+
+.voice-mode[hidden] {
+  display: none !important;
+}
+
+.voice-mode-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 10, 18, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.voice-mode-sheet {
+  position: relative;
+  z-index: 1;
+  width: min(420px, 100%);
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1.25rem 1.5rem;
+  box-shadow: var(--shadow-app);
+  text-align: center;
+}
+
+.voice-mode-close {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.75rem;
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.voice-mode-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.voice-mode-hint {
+  margin: 0 0 1rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.voice-mode-visual {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.75rem;
+}
+
+.voice-mode-avatar {
+  border-radius: 50%;
+  padding: 6px;
+  background: #fff;
+  box-shadow: 0 8px 28px var(--accent-glow);
+}
+
+.voice-mode-avatar.speaking {
+  animation: avatar-speak 0.42s ease-in-out infinite;
+}
+
+.voice-mode-avatar.thinking {
+  animation: avatar-think 1.4s ease-in-out infinite;
+}
+
+.voice-mode-status {
+  margin: 0 0 1rem;
+  min-height: 1.25em;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.voice-mode-mic {
+  width: 4.25rem;
+  height: 4.25rem;
+  border: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  margin: 0 auto;
+  cursor: pointer;
+  color: #fff;
+  background: var(--user-bubble);
+  box-shadow: 0 8px 28px var(--accent-glow);
+  transition: transform 0.15s;
+}
+
+.voice-mode-mic:hover:not(:disabled) {
+  transform: scale(1.04);
+}
+
+.voice-mode-mic:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.voice-mode-mic.listening {
+  background: #ef4444;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
 @media (min-width: 640px) {
   .chat-app {
     padding-top: 1rem;
     padding-bottom: 1rem;
+  }
+
+  .voice-mode {
+    place-items: center;
   }
 }

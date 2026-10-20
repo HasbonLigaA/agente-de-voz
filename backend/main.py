@@ -78,27 +78,9 @@ class TranscribeResponse(BaseModel):
     raw_text: str | None = None
 
 
-_pending_tts: dict[str, asyncio.Task[str]] = {}
-
-
-def _cancel_pending_speech(session_id: str) -> None:
-    task = _pending_tts.pop(session_id, None)
-    if task and not task.done():
-        task.cancel()
-
-
 async def _reply_with_voice(text: str) -> str:
     audio_bytes = await synthesize_speech(text)
     return base64.b64encode(audio_bytes).decode("ascii")
-
-
-def _schedule_reply_voice(session_id: str, text: str) -> None:
-    _cancel_pending_speech(session_id)
-
-    async def _run() -> str:
-        return await _reply_with_voice(text)
-
-    _pending_tts[session_id] = asyncio.create_task(_run())
 
 
 def _lan_urls(port: int | None = None) -> list[str]:
@@ -209,7 +191,6 @@ async def api_chat(body: ChatRequest):
         session = create_session()
 
     user_text = body.message.strip()
-    _cancel_pending_speech(session.id)
     session.messages.append({"role": "user", "content": user_text})
 
     try:
@@ -225,36 +206,11 @@ async def api_chat(body: ChatRequest):
     reply = sanitize_institution_name(reply)
     session.messages.append({"role": "assistant", "content": reply})
 
-    audio_b64 = ""
-    if CHAT_TEXT_FIRST:
-        _schedule_reply_voice(session.id, reply)
-    else:
-        try:
-            audio_b64 = await _reply_with_voice(reply)
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Error al generar voz: {exc}") from exc
-
     return ChatResponse(
         session_id=session.id,
         reply_text=reply,
-        audio_base64=audio_b64,
+        audio_base64="",
     )
-
-
-@app.get("/api/speech/for-session/{session_id}")
-async def api_speech_for_session(session_id: str):
-    task = _pending_tts.pop(session_id, None)
-    if task is None:
-        raise HTTPException(status_code=404, detail="No hay audio pendiente para esta sesión.")
-    try:
-        audio_b64 = await task
-    except asyncio.CancelledError:
-        raise HTTPException(status_code=409, detail="Audio cancelado por un mensaje nuevo.") from None
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Error al generar voz: {exc}") from exc
-    if not audio_b64:
-        raise HTTPException(status_code=502, detail="Audio vacío.")
-    return {"audio_base64": audio_b64, "audio_mime": "audio/mpeg"}
 
 
 @app.post("/api/speech")

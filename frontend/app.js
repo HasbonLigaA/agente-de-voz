@@ -12,21 +12,22 @@ const messageEl = document.getElementById("message");
 const sendBtn = document.getElementById("send");
 const newSessionBtn = document.getElementById("new-session");
 const healthEl = document.getElementById("health");
-const micBtn = document.getElementById("mic-btn");
 const micStatusEl = document.getElementById("mic-status");
-const presenceEl = document.getElementById("assistant-presence");
-const avatarEl = document.getElementById("assistant-avatar");
-const presenceLabelEl = document.getElementById("presence-label");
-const emptyStateEl = document.getElementById("empty-state");
+const voiceModeOpenBtn = document.getElementById("voice-mode-open");
+const voiceModeEl = document.getElementById("voice-mode");
+const voiceModeCloseBtn = document.getElementById("voice-mode-close");
+const voiceModeMicBtn = document.getElementById("voice-mode-mic");
+const voiceModeStatusEl = document.getElementById("voice-mode-status");
+const voiceModeAvatarEl = document.getElementById("voice-mode-avatar");
 
 let appHttpsUrl = null;
-
 let micStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let micRecording = false;
 let recordStartedAt = 0;
-let presenceMode = null;
+let voiceModeOpen = false;
+let voiceBusy = false;
 let speechGeneration = 0;
 let speechFetchAbort = null;
 
@@ -37,24 +38,14 @@ function isIOS() {
   );
 }
 
-function micAllowedHere() {
-  return Boolean(window.isSecureContext);
-}
-
 function ensureMediaDevices() {
-  if (!navigator.mediaDevices) {
-    navigator.mediaDevices = {};
-  }
-  if (navigator.mediaDevices.getUserMedia) {
-    return true;
-  }
+  if (!navigator.mediaDevices) navigator.mediaDevices = {};
+  if (navigator.mediaDevices.getUserMedia) return true;
   const legacy =
     navigator.getUserMedia ||
     navigator.webkitGetUserMedia ||
     navigator.mozGetUserMedia;
-  if (!legacy) {
-    return false;
-  }
+  if (!legacy) return false;
   navigator.mediaDevices.getUserMedia = (constraints) =>
     new Promise((resolve, reject) => {
       legacy.call(navigator, constraints, resolve, reject);
@@ -62,51 +53,19 @@ function ensureMediaDevices() {
   return true;
 }
 
-function normalizeWords(text) {
-  const m = text.toLowerCase().match(/[a-záéíóúüñ]+/gi);
-  return m || [];
-}
-
 function isRepetitiveGarbage(text) {
-  const words = normalizeWords(text);
-  if (words.length < 2) return false;
+  const m = text.toLowerCase().match(/[a-záéíóúüñ]+/gi) || [];
+  if (m.length < 2) return false;
   const counts = {};
-  for (const w of words) counts[w] = (counts[w] || 0) + 1;
+  for (const w of m) counts[w] = (counts[w] || 0) + 1;
   const max = Math.max(...Object.values(counts));
-  if (max >= 2 && words.length <= 4) return true;
-  return max >= 3 && max / words.length >= 0.45;
-}
-
-function setAssistantPresence(mode) {
-  presenceMode = mode;
-  if (!presenceEl || !avatarEl) return;
-  if (!mode) {
-    presenceEl.hidden = true;
-    avatarEl.classList.remove("speaking", "thinking");
-    return;
-  }
-  presenceEl.hidden = false;
-  avatarEl.classList.toggle("speaking", mode === "speaking");
-  avatarEl.classList.toggle("thinking", mode === "thinking");
-  if (presenceLabelEl) {
-    presenceLabelEl.textContent =
-      mode === "speaking" ? "Hablando…" : "Preparando respuesta…";
-  }
-}
-
-function bindAudioPresence(audio) {
-  const clear = () => {
-    if (lastAudio === audio) setAssistantPresence(null);
-  };
-  audio.addEventListener("ended", clear);
-  audio.addEventListener("pause", clear);
-  audio.addEventListener("error", clear);
+  if (max >= 2 && m.length <= 4) return true;
+  return max >= 3 && max / m.length >= 0.45;
 }
 
 function appendBubble(role, text) {
   const row = document.createElement("div");
   row.className = `msg-row ${role}`;
-
   if (role === "assistant") {
     const img = document.createElement("img");
     img.className = "msg-avatar";
@@ -114,7 +73,6 @@ function appendBubble(role, text) {
     img.alt = "";
     row.appendChild(img);
   }
-
   const div = document.createElement("div");
   div.className = `bubble ${role}`;
   const label = role === "user" ? "Tú" : ASSISTANT_NAME;
@@ -130,23 +88,11 @@ function syncEmptyState() {
   logEl.classList.toggle("has-messages", logEl.children.length > 0);
 }
 
-function autoResizeMessageField() {
-  if (!messageEl) return;
-  messageEl.style.height = "auto";
-  messageEl.style.height = `${Math.min(messageEl.scrollHeight, 120)}px`;
-}
-
 function escapeHtml(s) {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-}
-
-function waitForPaint() {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(resolve));
-  });
 }
 
 function setMicStatus(text, active = false) {
@@ -155,58 +101,25 @@ function setMicStatus(text, active = false) {
   micStatusEl.classList.toggle("active", active);
 }
 
-function setComposerDisabled(disabled, { markBusy = true } = {}) {
-  if (markBusy) chatBusy = disabled;
+function setComposerDisabled(disabled) {
+  chatBusy = disabled;
   sendBtn.disabled = disabled;
   messageEl.disabled = disabled;
-  if (micBtn) micBtn.disabled = disabled;
+  if (voiceModeOpenBtn) voiceModeOpenBtn.disabled = disabled;
 }
 
 function unlockComposerFully() {
-  setComposerDisabled(false, { markBusy: true });
+  setComposerDisabled(false);
 }
 
-function normalizeOrigin(url) {
-  return (url || "").replace(/\/$/, "");
+function setVoiceModeStatus(text) {
+  if (voiceModeStatusEl) voiceModeStatusEl.textContent = text;
 }
 
-async function ensureSecureContextForMic() {
-  if (window.isSecureContext) return true;
-  if (!appHttpsUrl) return false;
-  const here = normalizeOrigin(window.location.origin);
-  const target = normalizeOrigin(appHttpsUrl);
-  if (here === target) return true;
-  window.location.replace(appHttpsUrl);
-  return false;
-}
-
-async function refreshHealth() {
-  try {
-    const res = await fetch("/api/health", { cache: "no-store" });
-    const data = await res.json();
-    sttBackendOk = Boolean(data.stt_available);
-    if (data.app_https_url) {
-      appHttpsUrl = data.app_https_url;
-    }
-    const engine = data.stt_engine || "auto";
-    const sttLang = data.stt_language || "es-CO";
-    const whLang = data.whisper_language || "es";
-    const wh = data.whisper_model ? `/${data.whisper_model}` : "";
-    const micHint = window.isSecureContext ? "micrófono disponible" : "micrófono vía HTTPS";
-    healthEl.textContent = sttBackendOk ? "En línea" : "Parcial";
-    healthEl.title = sttBackendOk
-      ? `STT ${engine} · ${sttLang} · whisper=${whLang}${wh} · ${data.ollama_model || "LLM"} · ${micHint}`
-      : "Instala faster-whisper e imageio-ffmpeg";
-    healthEl.className = "status-pill ok";
-    if (!window.isSecureContext && appHttpsUrl) {
-      await ensureSecureContextForMic();
-    }
-  } catch {
-    sttBackendOk = false;
-    healthEl.textContent = "Sin conexión";
-    healthEl.title = "Servicio no disponible. Inicia el servidor en este equipo.";
-    healthEl.className = "status-pill err";
-  }
+function setVoiceAvatarState(state) {
+  if (!voiceModeAvatarEl) return;
+  voiceModeAvatarEl.classList.toggle("speaking", state === "speaking");
+  voiceModeAvatarEl.classList.toggle("thinking", state === "thinking");
 }
 
 function stopActiveSpeech() {
@@ -221,7 +134,35 @@ function stopActiveSpeech() {
     URL.revokeObjectURL(lastAudio.src);
     lastAudio = null;
   }
-  setAssistantPresence(null);
+  setVoiceAvatarState(null);
+}
+
+async function refreshHealth() {
+  try {
+    const res = await fetch("/api/health", { cache: "no-store" });
+    const data = await res.json();
+    sttBackendOk = Boolean(data.stt_available);
+    if (data.app_https_url) appHttpsUrl = data.app_https_url;
+    healthEl.textContent = sttBackendOk ? "En línea" : "Parcial";
+    healthEl.className = "status-pill ok";
+    if (!window.isSecureContext && appHttpsUrl) {
+      await ensureSecureContextForMic();
+    }
+  } catch {
+    sttBackendOk = false;
+    healthEl.textContent = "Sin conexión";
+    healthEl.className = "status-pill err";
+  }
+}
+
+async function ensureSecureContextForMic() {
+  if (window.isSecureContext) return true;
+  if (!appHttpsUrl) return false;
+  const here = (window.location.origin || "").replace(/\/$/, "");
+  const target = appHttpsUrl.replace(/\/$/, "");
+  if (here === target) return true;
+  window.location.replace(appHttpsUrl);
+  return false;
 }
 
 async function playAudioBase64(b64, gen = speechGeneration) {
@@ -235,35 +176,24 @@ async function playAudioBase64(b64, gen = speechGeneration) {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   const audio = new Audio(URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" })));
   lastAudio = audio;
-  bindAudioPresence(audio);
-  setAssistantPresence("speaking");
+  audio.addEventListener("ended", () => {
+    if (lastAudio === audio && gen === speechGeneration) {
+      setVoiceAvatarState(null);
+      setVoiceModeStatus("Listo · pulsa para hablar");
+      voiceBusy = false;
+      if (voiceModeMicBtn) voiceModeMicBtn.disabled = false;
+    }
+  });
+  setVoiceAvatarState("speaking");
+  setVoiceModeStatus("Hablando…");
   try {
     await audio.play();
   } catch {
-    if (gen === speechGeneration) setAssistantPresence(null);
-  }
-}
-
-async function fetchSpeechForSession(sessionId, gen) {
-  if (!sessionId || gen !== speechGeneration) return;
-  speechFetchAbort = new AbortController();
-  try {
-    const res = await fetch(`/api/speech/for-session/${encodeURIComponent(sessionId)}`, {
-      cache: "no-store",
-      signal: speechFetchAbort.signal,
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      if (res.status === 409 || res.status === 404) return;
-      throw new Error(data.detail || "Error al obtener voz");
+    if (gen === speechGeneration) {
+      setVoiceAvatarState(null);
+      voiceBusy = false;
+      if (voiceModeMicBtn) voiceModeMicBtn.disabled = false;
     }
-    if (data.audio_base64) await playAudioBase64(data.audio_base64, gen);
-    else if (gen === speechGeneration) setAssistantPresence(null);
-  } catch (err) {
-    if (err?.name === "AbortError") return;
-    if (gen === speechGeneration) setAssistantPresence(null);
-  } finally {
-    speechFetchAbort = null;
   }
 }
 
@@ -278,52 +208,31 @@ async function fetchSpeechAndPlay(replyText, gen = speechGeneration) {
       signal: speechFetchAbort.signal,
     });
     const data = await res.json();
-    if (!res.ok) {
-      if (gen === speechGeneration) setAssistantPresence(null);
-      return;
-    }
-    if (data.audio_base64) await playAudioBase64(data.audio_base64, gen);
-    else if (gen === speechGeneration) setAssistantPresence(null);
+    if (!res.ok) throw new Error(data.detail || "Error al generar voz");
+    await playAudioBase64(data.audio_base64, gen);
   } catch (err) {
     if (err?.name === "AbortError") return;
-    if (gen === speechGeneration) setAssistantPresence(null);
+    setVoiceModeStatus(String(err.message || err));
+    setVoiceAvatarState(null);
+    voiceBusy = false;
+    if (voiceModeMicBtn) voiceModeMicBtn.disabled = false;
   } finally {
     speechFetchAbort = null;
   }
 }
 
-function playReplyVoice(data) {
-  const gen = speechGeneration;
-  setAssistantPresence("speaking");
-  if (data.audio_base64) {
-    void playAudioBase64(data.audio_base64, gen);
-    return;
-  }
-  if (data.session_id) {
-    void fetchSpeechForSession(data.session_id, gen);
-    return;
-  }
-  void fetchSpeechAndPlay(data.reply_text, gen);
-}
-
-async function sendChatMessage(
-  text,
-  { fromVoice = false, fastReturn = false, skipUserBubble = false } = {}
-) {
+async function sendChatMessage(text) {
   const trimmed = text.trim();
-  if (!trimmed) return;
-  if (chatBusy) return;
+  if (!trimmed || chatBusy) return;
   if (isRepetitiveGarbage(trimmed)) {
-    setMicStatus("Texto repetido o poco claro. Repite o escribe.");
+    setMicStatus("Texto repetido o poco claro. Reformula tu pregunta.");
     return;
   }
 
-  stopActiveSpeech();
-  if (!skipUserBubble) appendBubble("user", trimmed);
+  appendBubble("user", trimmed);
   messageEl.value = "";
+  autoResizeMessageField();
   setComposerDisabled(true);
-  setAssistantPresence("thinking");
-  await waitForPaint();
 
   try {
     const res = await fetch("/api/chat", {
@@ -335,57 +244,34 @@ async function sendChatMessage(
     if (!res.ok) throw new Error(data.detail || "Error en el chat");
     sessionId = data.session_id;
     appendBubble("assistant", data.reply_text);
-    if (fastReturn) {
-      playReplyVoice(data);
-    } else if (data.audio_base64) {
-      await playAudioBase64(data.audio_base64);
-    } else {
-      void fetchSpeechAndPlay(data.reply_text);
-    }
   } catch (err) {
-    setAssistantPresence(null);
     appendBubble("assistant", `Error: ${err.message}`);
   } finally {
     unlockComposerFully();
     messageEl.focus();
-    if (fromVoice) setMicStatus("");
   }
 }
 
 async function transcribeBlob(blob, mime, filename) {
   let ext = "webm";
-  if (filename && filename.includes(".")) {
-    ext = filename.split(".").pop().toLowerCase();
-  } else if (mime.includes("mp4") || mime.includes("m4a")) {
-    ext = "m4a";
-  } else if (mime.includes("ogg")) {
-    ext = "ogg";
-  } else if (mime.includes("wav")) {
-    ext = "wav";
-  } else if (mime.includes("mpeg") || mime.includes("mp3")) {
-    ext = "mp3";
-  }
+  if (filename?.includes(".")) ext = filename.split(".").pop().toLowerCase();
+  else if (mime.includes("mp4")) ext = "m4a";
+  else if (mime.includes("ogg")) ext = "ogg";
+  else if (mime.includes("wav")) ext = "wav";
   const formData = new FormData();
   formData.append("audio", blob, filename || `voz.${ext}`);
   const res = await fetch("/api/transcribe", { method: "POST", body: formData });
-  let data = {};
-  try {
-    data = await res.json();
-  } catch {
-    throw new Error(`Transcripción falló (HTTP ${res.status})`);
-  }
+  const data = await res.json();
   if (!res.ok) throw new Error(data.detail || "Error al transcribir");
-  return { text: data.text, raw: data.raw_text || null };
+  return data.text;
 }
 
 function pickRecorderMime() {
   const types = isIOS()
-    ? ["audio/mp4", "audio/aac", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]
+    ? ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]
     : ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
   for (const t of types) {
-    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) {
-      return t;
-    }
+    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
   }
   return "";
 }
@@ -402,11 +288,7 @@ async function stopRecorderAndGetBlob(recorder) {
     const mime = recorder.mimeType || pickRecorderMime() || "audio/webm";
     recorder.addEventListener(
       "stop",
-      () => {
-        setTimeout(() => {
-          resolve(new Blob(recordedChunks, { type: mime }));
-        }, 80);
-      },
+      () => setTimeout(() => resolve(new Blob(recordedChunks, { type: mime })), 80),
       { once: true }
     );
     try {
@@ -418,164 +300,160 @@ async function stopRecorderAndGetBlob(recorder) {
   });
 }
 
-async function sendTranscribedAudio(blob, filename) {
-  const mime = blob.type || "application/octet-stream";
-  setMicStatus("Transcribiendo audio…", true);
-  // Bloquea UI pero NO chatBusy: si no, sendChatMessage no hace fetch y no hay red.
-  setComposerDisabled(true, { markBusy: false });
-  try {
-    const { text } = await transcribeBlob(blob, mime, filename);
-    if (!text?.trim()) {
-      setMicStatus("No se entendió. Intenta de nuevo.");
-      unlockComposerFully();
-      return;
+async function ensureMicReady() {
+  if (!window.isSecureContext) {
+    if (!(await ensureSecureContextForMic())) {
+      throw new Error("El micrófono requiere HTTPS en este dispositivo.");
     }
-    messageEl.value = "";
-    setMicStatus("Enviando consulta…", true);
-    appendBubble("user", text);
-    await sendChatMessage(text, { fromVoice: true, fastReturn: true, skipUserBubble: true });
-  } catch (err) {
-    setMicStatus(String(err.message || err));
-    unlockComposerFully();
+  }
+  if (!sttBackendOk) {
+    throw new Error("Transcripción no disponible en el servidor.");
+  }
+  if (typeof MediaRecorder === "undefined" || !ensureMediaDevices()) {
+    throw new Error("Micrófono no disponible en este navegador.");
   }
 }
 
 async function startMicRecording() {
-  if (micRecording) return;
-  if (chatBusy) {
-    setMicStatus("Espera a que termine la respuesta actual…");
-    return;
-  }
-  stopActiveSpeech();
+  if (micRecording || voiceBusy) return;
   await refreshHealth();
+  await ensureMicReady();
 
-  if (!window.isSecureContext) {
-    if (!(await ensureSecureContextForMic())) {
-      setMicStatus(
-        appHttpsUrl
-          ? `Redirigiendo a ${appHttpsUrl.replace(/^https:\/\//, "")} para activar el micrófono…`
-          : "El micrófono requiere HTTPS. Configura APP_PUBLIC_HTTPS_URL en el servidor."
-      );
-    }
-    return;
-  }
-
-  if (!sttBackendOk) {
-    setMicStatus("Instala: pip install faster-whisper imageio-ffmpeg python-multipart");
-    return;
-  }
-
-  if (typeof MediaRecorder === "undefined") {
-    setMicStatus("Este navegador no puede grabar audio. Prueba Chrome o Safari actualizado.");
-    return;
-  }
-
-  if (!ensureMediaDevices()) {
-    setMicStatus("Micrófono no disponible en este navegador.");
-    return;
-  }
-
-  try {
-    micStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video: false,
-    });
-  } catch (err) {
-    const name = err?.name || "";
-    if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-      setMicStatus("Permiso de micrófono denegado. Actívalo en ajustes del navegador.");
-    } else if (name === "NotFoundError") {
-      setMicStatus("No se encontró micrófono en este dispositivo.");
-    } else {
-      setMicStatus(`No se pudo usar el micrófono (${name || "error"}).`);
-    }
-    return;
-  }
+  micStream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    video: false,
+  });
 
   recordedChunks = [];
   const mime = pickRecorderMime();
   try {
-    mediaRecorder = mime ? new MediaRecorder(micStream, { mimeType: mime }) : new MediaRecorder(micStream);
+    mediaRecorder = mime
+      ? new MediaRecorder(micStream, { mimeType: mime })
+      : new MediaRecorder(micStream);
   } catch {
-    try {
-      mediaRecorder = new MediaRecorder(micStream);
-    } catch {
-      releaseMicStream();
-      setMicStatus("No se pudo iniciar la grabación en este dispositivo.");
-      return;
-    }
+    mediaRecorder = new MediaRecorder(micStream);
   }
 
   mediaRecorder.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+    if (e.data?.size > 0) recordedChunks.push(e.data);
   };
-
-  try {
-    mediaRecorder.start(isIOS() ? 1000 : 250);
-  } catch {
-    releaseMicStream();
-    mediaRecorder = null;
-    setMicStatus("Error al grabar. Vuelve a pulsar el micrófono.");
-    return;
-  }
-
+  mediaRecorder.start(isIOS() ? 1000 : 250);
   recordStartedAt = Date.now();
   micRecording = true;
-  micBtn?.classList.add("listening");
-  setMicStatus("Grabando… habla con claridad y pulsa el micrófono otra vez para enviar.", true);
+  voiceModeMicBtn?.classList.add("listening");
+  setVoiceModeStatus("Grabando… pulsa otra vez para enviar");
 }
 
 async function stopMicRecording(send) {
   if (!micRecording && !mediaRecorder) return;
-
   const recorder = mediaRecorder;
   const elapsed = Date.now() - recordStartedAt;
   micRecording = false;
-  micBtn?.classList.remove("listening");
+  voiceModeMicBtn?.classList.remove("listening");
   mediaRecorder = null;
 
+  if (!recorder || recorder.state === "inactive") {
+    releaseMicStream();
+    if (send) setVoiceModeStatus("No se grabó. Intenta otra vez.");
+    return;
+  }
+
+  const blob = await stopRecorderAndGetBlob(recorder);
+  releaseMicStream();
+  recordedChunks = [];
+
+  if (!send) {
+    setVoiceModeStatus("Listo · pulsa para hablar");
+    return;
+  }
+  if (elapsed < 900 || blob.size < 500) {
+    setVoiceModeStatus("Muy breve. Habla al menos 1 segundo.");
+    return;
+  }
+  await processVoiceTurn(blob);
+}
+
+async function processVoiceTurn(blob) {
+  voiceBusy = true;
+  if (voiceModeMicBtn) voiceModeMicBtn.disabled = true;
+  stopActiveSpeech();
+  const gen = speechGeneration;
+
   try {
-    if (!recorder || recorder.state === "inactive") {
-      releaseMicStream();
-      if (send) setMicStatus("No se grabó. Pulsa el micrófono y habla.");
-      return;
-    }
+    setVoiceModeStatus("Transcribiendo…");
+    setVoiceAvatarState("thinking");
+    const text = (await transcribeBlob(blob, blob.type)).trim();
+    if (!text) throw new Error("No se entendió el audio.");
 
-    setMicStatus("Procesando grabación…", true);
-    const blob = await stopRecorderAndGetBlob(recorder);
-    releaseMicStream();
-    recordedChunks = [];
+    setVoiceModeStatus("Pensando…");
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, session_id: sessionId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Error en el chat");
+    sessionId = data.session_id;
 
-    if (!send) {
-      setMicStatus("Grabación cancelada.");
-      return;
-    }
-
-    if (elapsed < 900) {
-      setMicStatus("Muy breve. Habla al menos 1 segundo y vuelve a pulsar el micrófono.");
-      return;
-    }
-
-    if (blob.size < 500) {
-      setMicStatus(`Audio muy bajo (${blob.size} bytes). Habla más fuerte o más cerca del micrófono.`);
-      return;
-    }
-
-    await sendTranscribedAudio(blob);
+    setVoiceModeStatus("Generando voz…");
+    await fetchSpeechAndPlay(data.reply_text, gen);
   } catch (err) {
-    releaseMicStream();
-    setMicStatus(String(err.message || err));
-    unlockComposerFully();
+    if (gen === speechGeneration) {
+      setVoiceModeStatus(String(err.message || err));
+      setVoiceAvatarState(null);
+      voiceBusy = false;
+      if (voiceModeMicBtn) voiceModeMicBtn.disabled = false;
+    }
   }
 }
 
-micBtn?.addEventListener("click", () => {
-  if (micRecording) void stopMicRecording(true);
-  else void startMicRecording();
+function openVoiceMode() {
+  voiceModeOpen = true;
+  if (voiceModeEl) {
+    voiceModeEl.hidden = false;
+    voiceModeEl.setAttribute("aria-hidden", "false");
+  }
+  setVoiceModeStatus("Listo · pulsa para hablar");
+  void refreshHealth();
+}
+
+function closeVoiceMode() {
+  if (micRecording) void stopMicRecording(false);
+  stopActiveSpeech();
+  voiceBusy = false;
+  voiceModeOpen = false;
+  if (voiceModeEl) {
+    voiceModeEl.hidden = true;
+    voiceModeEl.setAttribute("aria-hidden", "true");
+  }
+  if (voiceModeMicBtn) {
+    voiceModeMicBtn.disabled = false;
+    voiceModeMicBtn.classList.remove("listening");
+  }
+}
+
+function autoResizeMessageField() {
+  if (!messageEl) return;
+  messageEl.style.height = "auto";
+  messageEl.style.height = `${Math.min(messageEl.scrollHeight, 120)}px`;
+}
+
+voiceModeOpenBtn?.addEventListener("click", () => {
+  if (chatBusy) return;
+  openVoiceMode();
+});
+
+voiceModeCloseBtn?.addEventListener("click", closeVoiceMode);
+voiceModeEl?.querySelector("[data-voice-close]")?.addEventListener("click", closeVoiceMode);
+
+voiceModeMicBtn?.addEventListener("click", async () => {
+  if (voiceBusy) return;
+  try {
+    if (micRecording) await stopMicRecording(true);
+    else await startMicRecording();
+  } catch (err) {
+    setVoiceModeStatus(String(err.message || err));
+  }
 });
 
 form.addEventListener("submit", async (e) => {
@@ -584,13 +462,19 @@ form.addEventListener("submit", async (e) => {
   await sendChatMessage(messageEl.value);
 });
 
+messageEl?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    form.requestSubmit();
+  }
+});
+
 newSessionBtn.addEventListener("click", () => {
-  if (micRecording) void stopMicRecording(false);
-  stopActiveSpeech();
+  closeVoiceMode();
   sessionId = null;
   logEl.innerHTML = "";
   syncEmptyState();
-  setAssistantPresence(null);
+  setMicStatus("");
   messageEl.focus();
 });
 
