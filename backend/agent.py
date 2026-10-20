@@ -12,6 +12,8 @@ from backend.config import (
     IN_SCOPE_HELP_REPLY,
     OLLAMA_TEXT_MODEL,
     OUT_OF_SCOPE_REPLY,
+    VOICE_FAST_ANSWER,
+    VOICE_ROUTING_USE_LLM,
 )
 from backend.contact_reply import answer_contact
 from backend.grounded_llm import answer_from_catalog, is_short_greeting
@@ -71,18 +73,29 @@ def _dispatch(intent: RoutedIntent, user_text: str) -> str:
             return sanitize_institution_name(OUT_OF_SCOPE_REPLY)
 
 
-def _answer_with_templates(user_text: str, history: list[dict[str, str]]) -> str:
+def _answer_with_templates(
+    user_text: str,
+    history: list[dict[str, str]],
+    *,
+    routing_use_llm: bool | None = None,
+    allow_free_chat: bool = True,
+) -> str:
     prior = history[:-1] if history and history[-1].get("role") == "user" else history
-    intent = route_user_message(user_text, prior)
+    intent = route_user_message(user_text, prior, use_llm=routing_use_llm)
     reply = _dispatch(intent, user_text)
-    if intent.topic == "out_of_scope" and not GROUNDED_ONLY:
+    if intent.topic == "out_of_scope" and not GROUNDED_ONLY and allow_free_chat:
         from backend.llm import build_messages, chat
 
         return chat(build_messages(history))
     return reply
 
 
-def answer_grounded(user_text: str, history: list[dict[str, str]]) -> str:
+def answer_grounded(
+    user_text: str,
+    history: list[dict[str, str]],
+    *,
+    for_voice: bool = False,
+) -> str:
     text = user_text.strip()
     if not text:
         return OUT_OF_SCOPE_REPLY
@@ -90,10 +103,19 @@ def answer_grounded(user_text: str, history: list[dict[str, str]]) -> str:
     if is_short_greeting(text) and GREETING_REPLY.strip():
         return sanitize_institution_name(GREETING_REPLY.strip())
 
+    voice_fast = for_voice and VOICE_FAST_ANSWER
+    if voice_fast:
+        return _answer_with_templates(
+            text,
+            history,
+            routing_use_llm=VOICE_ROUTING_USE_LLM,
+            allow_free_chat=False,
+        )
+
     use_llm = GROUNDED_ANSWER_WITH_LLM and bool(OLLAMA_TEXT_MODEL)
     if use_llm:
         try:
-            return answer_from_catalog(history)
+            return answer_from_catalog(history, for_voice=for_voice)
         except Exception as exc:
             logger.warning("Respuesta con catálogo LLM falló (%s); usando plantillas.", exc)
 

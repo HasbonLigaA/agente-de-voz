@@ -315,7 +315,12 @@ _GREETING_ONLY = re.compile(
 )
 
 
-def route_user_message(user_text: str, history: list[dict[str, str]]) -> RoutedIntent:
+def route_user_message(
+    user_text: str,
+    history: list[dict[str, str]],
+    *,
+    use_llm: bool | None = None,
+) -> RoutedIntent:
     text = user_text.strip()
     if not text:
         return RoutedIntent(topic="out_of_scope", source="rules")
@@ -323,7 +328,8 @@ def route_user_message(user_text: str, history: list[dict[str, str]]) -> RoutedI
     if _GREETING_ONLY.match(text):
         return RoutedIntent(topic="greeting", source="rules")
 
-    llm_intent = _classify_with_llm(text, history)
+    routing_llm = ROUTING_USE_LLM if use_llm is None else use_llm
+    llm_intent = _classify_with_llm(text, history) if routing_llm else None
     if llm_intent is not None:
         logger.info(
             "Intent [%s] topic=%s plan=%s inst=%s spec=%s mode=%s",

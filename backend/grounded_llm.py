@@ -6,6 +6,8 @@ import logging
 import re
 
 from backend.brand import sanitize_institution_name
+from collections.abc import Iterator
+
 from backend.config import (
     GROUNDED_ANSWER_PROMPT,
     GROUNDED_ANSWER_TEMPERATURE,
@@ -13,9 +15,11 @@ from backend.config import (
     OLLAMA_NUM_PREDICT,
     OLLAMA_TEXT_MODEL,
     OUT_OF_SCOPE_REPLY,
+    VOICE_GROUNDED_NUM_PREDICT,
+    VOICE_GROUNDED_PROMPT,
 )
 from backend.knowledge_context import build_knowledge_json
-from backend.llm import chat
+from backend.llm import chat, chat_stream
 
 logger = logging.getLogger(__name__)
 
@@ -44,31 +48,59 @@ KNOWLEDGE:
 """
 
 
-def _system_content() -> str:
+def _system_content(*, for_voice: bool = False) -> str:
     extra = GROUNDED_ANSWER_PROMPT.strip()
     base = _DEFAULT_INSTRUCTIONS + build_knowledge_json()
     if extra:
-        return base + "\n\nInstrucciones adicionales:\n" + extra
+        base = base + "\n\nInstrucciones adicionales:\n" + extra
+    if for_voice:
+        voice_extra = VOICE_GROUNDED_PROMPT.strip()
+        if voice_extra:
+            base = base + "\n\n" + voice_extra
     return base
 
 
-def answer_from_catalog(history: list[dict[str, str]]) -> str:
+def _catalog_messages(history: list[dict[str, str]], *, for_voice: bool = False) -> list[dict[str, str]]:
+    return [{"role": "system", "content": _system_content(for_voice=for_voice)}, *history]
+
+
+def _num_predict_for_voice(for_voice: bool) -> int:
+    if for_voice:
+        return min(OLLAMA_NUM_PREDICT, VOICE_GROUNDED_NUM_PREDICT)
+    return min(OLLAMA_NUM_PREDICT, 640)
+
+
+def answer_from_catalog(history: list[dict[str, str]], *, for_voice: bool = False) -> str:
     if not OLLAMA_TEXT_MODEL:
         raise RuntimeError("OLLAMA_TEXT_MODEL no configurado")
     if not history:
         raise ValueError("Historial vacío")
 
-    messages = [{"role": "system", "content": _system_content()}, *history]
+    messages = _catalog_messages(history, for_voice=for_voice)
     text = chat(
         messages,
         temperature=GROUNDED_ANSWER_TEMPERATURE,
         num_ctx=max(OLLAMA_NUM_CTX, 8192),
-        num_predict=min(OLLAMA_NUM_PREDICT, 640),
+        num_predict=_num_predict_for_voice(for_voice),
     )
     text = sanitize_institution_name(text.strip())
     if not text:
         raise RuntimeError("Respuesta vacía del modelo")
     return text
+
+
+def stream_answer_from_catalog(history: list[dict[str, str]], *, for_voice: bool = False) -> Iterator[str]:
+    if not OLLAMA_TEXT_MODEL:
+        raise RuntimeError("OLLAMA_TEXT_MODEL no configurado")
+    if not history:
+        raise ValueError("Historial vacío")
+    messages = _catalog_messages(history, for_voice=for_voice)
+    yield from chat_stream(
+        messages,
+        temperature=GROUNDED_ANSWER_TEMPERATURE,
+        num_ctx=max(OLLAMA_NUM_CTX, 8192),
+        num_predict=_num_predict_for_voice(for_voice),
+    )
 
 
 _GREETING_ONLY = re.compile(

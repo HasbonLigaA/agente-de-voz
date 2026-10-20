@@ -95,6 +95,25 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;");
 }
 
+function decodeHeaderUtf8(b64) {
+  if (!b64) return "";
+  try {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return "";
+  }
+}
+
+function appendVoiceTurnToChat(userText, replyText) {
+  const user = userText.trim();
+  const reply = replyText.trim();
+  if (user) appendBubble("user", user);
+  if (reply) appendBubble("assistant", reply);
+}
+
 function setMicStatus(text, active = false) {
   if (!micStatusEl) return;
   micStatusEl.textContent = text;
@@ -174,31 +193,120 @@ async function ensureSecureContextForMic() {
   return false;
 }
 
+function b64ToMp3Blob(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: "audio/mpeg" });
+}
+
+function playAudioBlobAwait(blob, gen = speechGeneration) {
+  return new Promise((resolve) => {
+    if (!blob?.size || gen !== speechGeneration) {
+      resolve();
+      return;
+    }
+    if (lastAudio) {
+      lastAudio.pause();
+      if (lastAudio.src?.startsWith("blob:")) URL.revokeObjectURL(lastAudio.src);
+    }
+    const audio = new Audio(URL.createObjectURL(blob));
+    lastAudio = audio;
+    const finish = () => {
+      if (lastAudio === audio && lastAudio.src?.startsWith("blob:")) {
+        URL.revokeObjectURL(lastAudio.src);
+      }
+      if (lastAudio === audio) lastAudio = null;
+      resolve();
+    };
+    audio.addEventListener("ended", finish);
+    audio.addEventListener("error", finish);
+    setVoiceAvatarState("speaking");
+    setVoiceModeStatus("Hablando… · pulsa el mic para cortar");
+    audio.play().catch(finish);
+  });
+}
+
 async function playAudioBlob(blob, gen = speechGeneration) {
-  if (!blob?.size || gen !== speechGeneration) return;
-  if (lastAudio) {
-    lastAudio.pause();
-    if (lastAudio.src?.startsWith("blob:")) URL.revokeObjectURL(lastAudio.src);
+  await playAudioBlobAwait(blob, gen);
+  if (gen === speechGeneration) {
+    setVoiceAvatarState(null);
+    setVoiceModeStatus("Listo · pulsa para hablar");
+    voiceBusy = false;
   }
-  const audio = new Audio(URL.createObjectURL(blob));
-  lastAudio = audio;
-  audio.addEventListener("ended", () => {
-    if (lastAudio === audio && gen === speechGeneration) {
+}
+
+async function consumeVoiceNdjsonStream(res, gen) {
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("Respuesta de voz inválida.");
+  const decoder = new TextDecoder();
+  let lineBuf = "";
+  let assistantShown = false;
+  let playChain = Promise.resolve();
+  let streamDone = false;
+
+  setVoiceModeStatus("Pensando…");
+  setVoiceAvatarState("thinking");
+
+  const finishIfIdle = () => {
+    playChain.then(() => {
+      if (!streamDone || gen !== speechGeneration) return;
       setVoiceAvatarState(null);
       setVoiceModeStatus("Listo · pulsa para hablar");
       voiceBusy = false;
+    });
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (gen !== speechGeneration) {
+      try {
+        await reader.cancel();
+      } catch {
+        /* ignore */
+      }
+      return;
     }
-  });
-  setVoiceAvatarState("speaking");
-  setVoiceModeStatus("Hablando… · pulsa el mic para cortar");
-  try {
-    await audio.play();
-  } catch {
-    if (gen === speechGeneration) {
-      setVoiceAvatarState(null);
-      voiceBusy = false;
-      setVoiceModeStatus("No se pudo reproducir el audio.");
+    if (value?.length) lineBuf += decoder.decode(value, { stream: true });
+    if (done) lineBuf += decoder.decode();
+    let nl;
+    while ((nl = lineBuf.indexOf("\n")) >= 0) {
+      const line = lineBuf.slice(0, nl).trim();
+      lineBuf = lineBuf.slice(nl + 1);
+      if (!line) continue;
+      let evt;
+      try {
+        evt = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (evt.type === "reply" && !assistantShown) {
+        const reply = String(evt.text || "").trim();
+        if (reply) appendBubble("assistant", reply);
+        assistantShown = true;
+        setVoiceModeStatus("Generando voz…");
+      }
+      if (evt.type === "audio" && evt.data) {
+        voiceBusy = false;
+        const b64 = evt.data;
+        playChain = playChain.then(async () => {
+          if (gen !== speechGeneration) return;
+          await playAudioBlobAwait(b64ToMp3Blob(b64), gen);
+        });
+      }
+      if (evt.type === "error") {
+        throw new Error(evt.detail || "Error en modo voz");
+      }
+      if (evt.type === "done") {
+        streamDone = true;
+        finishIfIdle();
+      }
     }
+    if (done) break;
+  }
+  if (!streamDone && gen === speechGeneration) {
+    streamDone = true;
+    finishIfIdle();
   }
 }
 
@@ -419,7 +527,17 @@ async function processVoiceTurn(blob) {
     }
     const sid = res.headers.get("X-Session-Id");
     if (sid) sessionId = sid;
-    await consumeSpeechStream(res, gen);
+    const userFromVoice = decodeHeaderUtf8(res.headers.get("X-Voice-User-Text"));
+    if (userFromVoice.trim()) appendBubble("user", userFromVoice.trim());
+
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("ndjson")) {
+      await consumeVoiceNdjsonStream(res, gen);
+    } else {
+      const replyFromHeader = decodeHeaderUtf8(res.headers.get("X-Voice-Reply-Text"));
+      if (replyFromHeader.trim()) appendBubble("assistant", replyFromHeader.trim());
+      await consumeSpeechStream(res, gen);
+    }
   } catch (err) {
     if (err?.name === "AbortError" || gen !== speechGeneration) return;
     setVoiceModeStatus(String(err.message || err));

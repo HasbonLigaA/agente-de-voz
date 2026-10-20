@@ -119,6 +119,18 @@ ROUTING_USE_LLM = _env_bool("ROUTING_USE_LLM", "true")
 # Devuelve texto al cliente y genera voz en segundo plano (/api/speech)
 CHAT_TEXT_FIRST = _env_bool("CHAT_TEXT_FIRST", "true")
 
+# Modo voz: si true, plantillas rápidas (sin LLM de catálogo). Por defecto false = mismo LLM que el chat.
+VOICE_FAST_ANSWER = _env_bool("VOICE_FAST_ANSWER", "false")
+VOICE_ROUTING_USE_LLM = _env_bool("VOICE_ROUTING_USE_LLM", "false")
+VOICE_TTS_MAX_CHARS = _env_int("VOICE_TTS_MAX_CHARS", "1400")
+VOICE_GROUNDED_NUM_PREDICT = _env_int("VOICE_GROUNDED_NUM_PREDICT", "380")
+VOICE_STREAM_LLM = _env_bool("VOICE_STREAM_LLM", "true")
+VOICE_GROUNDED_PROMPT = os.getenv(
+    "VOICE_GROUNDED_PROMPT",
+    "Modo conversación por voz: responde directo y completo según KNOWLEDGE, "
+    "pero ve al grano; si hay muchos ítems, los más importantes primero.",
+)
+
 # CORS (front servido desde el mismo host suele no hacer falta; útil en pruebas)
 CORS_ALLOW_ORIGINS = [
     o.strip()

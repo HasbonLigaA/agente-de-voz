@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 import ollama
@@ -46,6 +47,40 @@ def chat(
         response = ollama.chat(**payload)
     text = (response.get("message") or {}).get("content", "").strip()
     return sanitize_institution_name(text)
+
+
+def chat_stream(
+    messages: list[dict[str, str]],
+    model: str | None = None,
+    *,
+    temperature: float | None = None,
+    num_ctx: int | None = None,
+    num_predict: int | None = None,
+) -> Iterator[str]:
+    """Tokens de respuesta de Ollama (stream=True)."""
+    chat_model = model or OLLAMA_TEXT_MODEL
+    if not chat_model:
+        raise RuntimeError("OLLAMA_TEXT_MODEL no configurado en .env")
+    payload: dict[str, Any] = {
+        "model": chat_model,
+        "messages": messages,
+        "stream": True,
+        "options": {
+            "temperature": OLLAMA_TEMPERATURE if temperature is None else temperature,
+            "num_ctx": OLLAMA_NUM_CTX if num_ctx is None else num_ctx,
+            "num_predict": OLLAMA_NUM_PREDICT if num_predict is None else num_predict,
+        },
+        "keep_alive": OLLAMA_KEEP_ALIVE,
+    }
+    try:
+        client = ollama.Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT)
+        stream = client.chat(**payload)
+    except TypeError:
+        stream = ollama.chat(**payload)
+    for chunk in stream:
+        part = (chunk.get("message") or {}).get("content") or ""
+        if part:
+            yield part
 
 
 def build_messages(history: list[dict[str, str]]) -> list[dict[str, str]]:

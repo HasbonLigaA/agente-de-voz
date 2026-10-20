@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
+import logging
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -12,6 +15,7 @@ from pydantic import BaseModel, Field
 from backend.brand import sanitize_institution_name
 from backend.config import (
     CORS_ALLOW_ORIGINS,
+    GROUNDED_ANSWER_WITH_LLM,
     OLLAMA_HOST,
     OLLAMA_TEXT_MODEL,
     PORT,
@@ -21,6 +25,8 @@ from backend.config import (
     app_public_https_url,
     TTS_VOICE,
     TTS_VOICE_MAX_CHARS,
+    VOICE_STREAM_LLM,
+    VOICE_TTS_MAX_CHARS,
     WELCOME_MESSAGE,
     WHISPER_LANGUAGE,
     WHISPER_MODEL_SIZE,
@@ -32,14 +38,32 @@ from backend.stt import stt_available, transcribe_audio_bytes, warm_whisper_mode
 from backend.voice_polish import polish_transcript
 from backend.tts import iter_speech_audio, synthesize_speech
 from backend.tts_prepare import compress_reply_for_voice
+from backend.voice_stream import voice_turn_ndjson_stream
+from backend.llm import chat
 
 app = FastAPI(title="Agente de voz", version="0.1.0")
+logger = logging.getLogger(__name__)
+
+_VOICE_EXPOSE_HEADERS = "X-Session-Id, X-Voice-User-Text, X-Voice-Reply-Text"
+
+
+def _header_b64(text: str) -> str:
+    return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
 
 @app.on_event("startup")
 async def _warm_stt_on_startup() -> None:
     if stt_available():
         await asyncio.to_thread(warm_whisper_model)
+    if OLLAMA_TEXT_MODEL:
+        try:
+            await asyncio.to_thread(
+                chat,
+                [{"role": "user", "content": "ok"}],
+                num_predict=1,
+            )
+        except Exception as exc:
+            logger.warning("Warmup Ollama omitido: %s", exc)
 
 
 # Permite probar desde otro dispositivo (celular en la misma red o tunel HTTPS).
@@ -51,6 +75,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Session-Id", "X-Voice-User-Text", "X-Voice-Reply-Text"],
 )
 
 
@@ -242,6 +267,7 @@ async def api_voice_turn(
     session_id: str | None = Form(default=None),
 ):
     """Transcribe + chat + TTS en una sola petición (menos espera que 3 llamadas)."""
+    t0 = time.perf_counter()
     if not stt_available():
         raise HTTPException(status_code=503, detail="Transcripción no disponible.")
     raw = await audio.read()
@@ -252,31 +278,87 @@ async def api_voice_turn(
         suffix = "." + audio.filename.rsplit(".", 1)[-1].lower()
 
     try:
-        raw_text = await asyncio.to_thread(transcribe_audio_bytes, raw, suffix=suffix)
-        user_text = await asyncio.to_thread(polish_transcript, raw_text)
+        user_text = await asyncio.to_thread(transcribe_audio_bytes, raw, suffix=suffix)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"No se pudo transcribir: {exc}") from exc
     user_text = user_text.strip()
     if not user_text:
         raise HTTPException(status_code=400, detail="No se entendió el audio.")
+    t_stt = time.perf_counter()
 
     session = get_session(session_id) if session_id else None
     if session is None:
         session = create_session()
     session.messages.append({"role": "user", "content": user_text})
+    history = list(session.messages)
+
+    if VOICE_STREAM_LLM and GROUNDED_ANSWER_WITH_LLM:
+        logger.info("voice/turn STT %.2fs → streaming LLM+TTS", t_stt - t0)
+
+        async def ndjson_stream():
+            reply_saved = False
+            try:
+                async for chunk in voice_turn_ndjson_stream(
+                    history,
+                    for_voice=True,
+                    tts_max_chars=VOICE_TTS_MAX_CHARS,
+                ):
+                    line = chunk.decode("utf-8").strip()
+                    if not line:
+                        continue
+                    try:
+                        evt = json.loads(line)
+                    except json.JSONDecodeError:
+                        yield chunk
+                        continue
+                    if evt.get("type") == "reply" and not reply_saved:
+                        reply = sanitize_institution_name(str(evt.get("text") or ""))
+                        if reply:
+                            session.messages.append({"role": "assistant", "content": reply})
+                            reply_saved = True
+                    if evt.get("type") == "error":
+                        if not reply_saved:
+                            session.messages.pop()
+                    yield chunk
+            except Exception:
+                if not reply_saved:
+                    session.messages.pop()
+                raise
+
+        return StreamingResponse(
+            ndjson_stream(),
+            media_type="application/x-ndjson",
+            headers={
+                "X-Session-Id": session.id,
+                "X-Voice-User-Text": _header_b64(user_text),
+                "Access-Control-Expose-Headers": _VOICE_EXPOSE_HEADERS,
+            },
+        )
 
     try:
-        reply = await asyncio.to_thread(answer_grounded, user_text, list(session.messages))
+        reply = await asyncio.to_thread(
+            answer_grounded,
+            user_text,
+            history,
+            for_voice=True,
+        )
     except Exception as exc:
         session.messages.pop()
         raise HTTPException(status_code=502, detail=f"Error al generar respuesta: {exc}") from exc
     if not reply:
         session.messages.pop()
         raise HTTPException(status_code=502, detail="Ollama devolvió una respuesta vacía.")
+    t_reply = time.perf_counter()
 
     reply = sanitize_institution_name(reply)
     session.messages.append({"role": "assistant", "content": reply})
-    speak = compress_reply_for_voice(reply, max_chars=TTS_VOICE_MAX_CHARS)
+    speak = compress_reply_for_voice(reply, max_chars=VOICE_TTS_MAX_CHARS)
+    logger.info(
+        "voice/turn STT %.2fs reply %.2fs speak_chars=%d",
+        t_stt - t0,
+        t_reply - t_stt,
+        len(speak),
+    )
 
     async def audio_stream():
         async for part in iter_speech_audio(speak):
@@ -285,7 +367,12 @@ async def api_voice_turn(
     return StreamingResponse(
         audio_stream(),
         media_type="audio/mpeg",
-        headers={"X-Session-Id": session.id},
+        headers={
+            "X-Session-Id": session.id,
+            "X-Voice-User-Text": _header_b64(user_text),
+            "X-Voice-Reply-Text": _header_b64(reply),
+            "Access-Control-Expose-Headers": _VOICE_EXPOSE_HEADERS,
+        },
     )
 
 
